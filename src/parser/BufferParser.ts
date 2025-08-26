@@ -112,3 +112,5 @@ export function stringify(obj: any): string {
 }
 
 export default {parse,stringify}
+
+//BufferParser by Yqloss
