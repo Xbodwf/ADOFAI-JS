@@ -40,41 +40,41 @@ export class Level {
             switch (typeof opt) {
                 case 'string':
                     try {
-                        options = Parser.parseAsObject(opt, this._provider);
+                        options = Parser.parseAsObject(opt, this._provider) as LevelOptions;
                     } catch (e) {
                         reject(e);
                         return;
                     }
                     break;
                 case 'object':
-                    options = Object.assign({}, opt);
+                    options = Object.assign({}, opt) as LevelOptions;
                     break;
                 default:
                     reject("Options must be String or Object");
                     return;
             }
-            if ('pathData' in options) {
+            if (options && typeof options === 'object' && options !== null && typeof options.pathData !== 'undefined') {
                 this.angleData = pathData.parseToangleData(options['pathData']!);
             } else {
-                if ('angleData' in options) {
-                    this.angleData = options['angleData']!;
-                } else {
-                    reject("There is not any angle datas.");
-                    return;
-                }
+                if (options && typeof options === 'object' && options !== null && typeof options.angleData !== 'undefined') {
+                this.angleData = options['angleData']!;
+            } else {
+                reject("There is not any angle datas.");
+                return;
             }
-            if ('actions' in options) {
+            }
+            if (options && typeof options === 'object' && options !== null && typeof options.actions !== 'undefined') {
                 this.actions = options['actions']!;
             } else {
                 this.actions = [];
             }
-            if ('settings' in options) {
+            if (options && typeof options === 'object' && options !== null && typeof options.settings !== 'undefined') {
                 this.settings = options['settings']!;
             } else {
                 reject("There is no ADOFAI settings.");
                 return;
             }
-            if ('decorations' in options) {
+            if (options && typeof options === 'object' && options !== null && typeof options.decorations !== 'undefined') {
                 this.__decorations = options['decorations']!;
             } else {
                 this.__decorations = [];
@@ -261,7 +261,7 @@ export class Level {
             let currentTile = this.tiles[i];
             if (this.getActionsByIndex('PositionTrack', i).count > 0) {
                 let pevent = this.getActionsByIndex('PositionTrack', i).actions[0];
-                if ('positionOffset' in pevent) {
+                if (pevent.positionOffset) {
                     if (pevent['editorOnly'] !== true && pevent['editorOnly'] !== 'Enabled') {
                         startPos[0] += pevent['positionOffset'][0];
                         startPos[1] += pevent['positionOffset'][1];
