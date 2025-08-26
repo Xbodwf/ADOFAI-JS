@@ -1,11 +1,11 @@
 import pathData from './src/pathdata'
-import Parser from './src/parser'
+import * as Parsers from './src/parser'
 import Level,* as Structure from './src/structure'
 import * as Presets from './src/presets'
 
 export {
     pathData,
-    Parser,
+    Parsers,
     Level,
     Structure,
     Presets
