@@ -1,7 +1,7 @@
 import { AdofaiEvent, LevelOptions, EventCallback, GuidCallback, Tile, ParseProvider } from './interfaces';
 import pathData from '../pathdata';
 import exportAsADOFAI from '../format'
-import {StringParser} from '../parser';
+import Parser from '../parser';
 import effectProcessor from '../effectProcessor';
 import * as presets from '../presets';
 
@@ -40,7 +40,7 @@ export class Level {
             switch (typeof opt) {
                 case 'string':
                     try {
-                        options = StringParser.parseAsObject(opt, this._provider);
+                        options = Parser.parseAsObject(opt, this._provider);
                     } catch (e) {
                         reject(e);
                         return;

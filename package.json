@@ -1,6 +1,6 @@
 {
   "name": "adofai",
-  "version": "2.9.7",
+  "version": "2.9.9",
   "main": "index.js",
   "scripts": {
     "build": "webpack",

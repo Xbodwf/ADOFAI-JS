@@ -1,5 +1,17 @@
-const BOM = Buffer.of(0xef, 0xbb, 0xbf)
-const COMMA = Buffer.from(",")
+
+let BOM: Buffer;
+let COMMA: Buffer;
+
+try {
+  BOM = Buffer.of(0xef, 0xbb, 0xbf);
+  COMMA = Buffer.from(",");
+} catch (e) {
+  console.warn('Buffer is not available in current environment, try to use ArrayBufferParser');
+  
+  // Provide dummy implementations to avoid errors during module loading
+  BOM = { equals: () => false, subarray: () => null } as any;
+  COMMA = { equals: () => false, subarray: () => null } as any;
+}
 
 export function stripBOM(buffer: Buffer): Buffer {
   if (buffer.length >= 3 && BOM.equals(buffer.subarray(0, 3))) {

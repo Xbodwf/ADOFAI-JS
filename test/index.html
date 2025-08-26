@@ -1,7 +1,7 @@
 <input type="file" id="inputFile">
 <button id="export">Export as ADOFAI</button>
-<script src="../dist/adofai.min.js"></script>
-<script>
+<script type="module">
+    import * as ADOFAI from '../dist/index.js'
     let fl, reader;
     document.querySelector('#inputFile').addEventListener('change', f => {
         fl = f.target.files[0];
