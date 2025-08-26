@@ -4,8 +4,8 @@ export interface AdofaiEvent {
 }
 
 export interface LevelOptions {
-    pathData: string;
-    angleData: number[];
+    pathData?: string;
+    angleData?: number[];
     actions: AdofaiEvent[];
     settings: Record<string, any>;
     decorations: AdofaiEvent[];
