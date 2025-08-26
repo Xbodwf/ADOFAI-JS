@@ -1,0 +1,501 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ADOFAI编辑器</title>
+  <!-- 引入Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- 引入Font Awesome -->
+  <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
+  <!-- 引入Vue 3 -->
+  <script src="https://cdn.jsdelivr.net/npm/vue@3.3.4/dist/vue.global.prod.js"></script>
+  <!-- 引入Ace Editor -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.10.0/ace.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.10.0/mode-json.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.10.0/theme-monokai.min.js"></script>
+  <script src="../dist/adofai.min.js"></script>
+
+  <!-- 配置Tailwind -->
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            primary: '#4F46E5', // 主色调：靛蓝色
+            secondary: '#EC4899', // 辅助色：粉色
+            accent: '#3B82F6', // 强调色：蓝色
+            dark: '#1E293B', // 深色背景
+            light: '#F8FAFC', // 浅色背景
+          },
+          fontFamily: {
+            inter: ['Inter', 'system-ui', 'sans-serif'],
+          },
+        },
+      }
+    }
+  </script>
+
+  <!-- 自定义工具类 -->
+  <style type="text/tailwindcss">
+    @layer utilities {
+      .content-auto {
+        content-visibility: auto;
+      }
+      .card-shadow {
+        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+      }
+      .transition-custom {
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      }
+      .gradient-bg {
+        background: linear-gradient(135deg, #4F46E5 0%, #8B5CF6 100%);
+      }
+    }
+  </style>
+</head>
+
+<body class="font-inter bg-gray-50 text-gray-800 min-h-screen flex flex-col">
+  <!-- 导航栏 -->
+  <header class="gradient-bg text-white shadow-lg">
+    <div class="container mx-auto px-4 py-4 flex justify-between items-center">
+      <div class="flex items-center space-x-3">
+        <i class="fa fa-cube text-2xl"></i>
+        <h1 class="text-xl md:text-2xl font-bold">ADOFAI 编辑器</h1>
+      </div>
+      <div class="flex items-center space-x-4">
+        <button id="exportBtn"
+          class="bg-white text-primary px-4 py-2 rounded-lg font-medium shadow-md hover:shadow-lg transition-custom flex items-center">
+          <i class="fa fa-download mr-2"></i> 导出文件
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- 主内容区 -->
+  <main class="flex-grow container mx-auto px-4 py-6">
+    <!-- 文件上传区 -->
+    <section class="mb-8">
+      <div class="bg-white rounded-xl p-6 card-shadow">
+        <h2 class="text-xl font-bold mb-4 flex items-center text-primary">
+          <i class="fa fa-upload mr-2"></i> 文件上传
+        </h2>
+        <div class="flex flex-col md:flex-row items-center space-y-4 md:space-y-0 md:space-x-4">
+          <label for="inputFile"
+            class="flex-1 border-2 border-dashed border-gray-300 rounded-lg p-4 text-center cursor-pointer hover:border-primary transition-custom">
+            <div class="flex flex-col items-center">
+              <i class="fa fa-file-text-o text-4xl text-gray-400 mb-2"></i>
+              <span class="text-gray-600">点击或拖拽文件到此处上传</span>
+              <span class="text-xs text-gray-500 mt-1">支持 .adofai 格式</span>
+            </div>
+            <input type="file" id="inputFile" class="hidden" accept=".adofai">
+          </label>
+          <div id="fileInfo" class="hidden bg-gray-100 rounded-lg p-4 flex-1">
+            <div class="flex items-center justify-between">
+              <div>
+                <h3 class="font-medium text-primary" id="fileName">未选择文件</h3>
+                <p class="text-sm text-gray-500" id="fileSize">0 KB</p>
+              </div>
+              <button id="resetFile" class="text-gray-400 hover:text-red-500 transition-custom">
+                <i class="fa fa-times-circle"></i>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 操作控制区 -->
+    <section class="mb-8">
+      <div class="bg-white rounded-xl p-6 card-shadow">
+        <h2 class="text-xl font-bold mb-6 flex items-center text-primary">
+          <i class="fa fa-sliders mr-2"></i> 砖块操作
+        </h2>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <!-- 插入砖块 -->
+          <div class="bg-gray-50 rounded-lg p-5 border-l-4 border-primary transition-custom hover:shadow-md">
+            <h3 class="font-semibold text-lg mb-4 flex items-center">
+              <i class="fa fa-plus-circle text-primary mr-2"></i> 插入砖块
+            </h3>
+            <div class="space-y-4">
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">位置索引</label>
+                <input v-model="insertIndex" type="number" min="0" placeholder="输入要插入的位置"
+                  class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary/50 focus:border-primary outline-none transition-custom">
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">方向角度</label>
+                <input v-model="insertDirection" type="number" min="0" max="359" placeholder="输入方向角度"
+                  class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary/50 focus:border-primary outline-none transition-custom">
+              </div>
+              <button @click="insertFloor" :disabled="!hasFile"
+                class="w-full bg-primary text-white px-4 py-2 rounded-lg font-medium hover:bg-primary/90 transition-custom shadow-md hover:shadow-lg">
+                执行插入
+              </button>
+            </div>
+          </div>
+
+          <!-- 追加砖块 -->
+          <div class="bg-gray-50 rounded-lg p-5 border-l-4 border-accent transition-custom hover:shadow-md">
+            <h3 class="font-semibold text-lg mb-4 flex items-center">
+              <i class="fa fa-arrow-down text-accent mr-2"></i> 追加砖块
+            </h3>
+            <div class="space-y-4">
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">方向角度</label>
+                <input v-model="appendDirection" type="number" min="0" max="359" placeholder="输入方向角度"
+                  class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-accent/50 focus:border-accent outline-none transition-custom">
+              </div>
+              <button @click="appendFloor" :disabled="!hasFile"
+                class="w-full bg-accent text-white px-4 py-2 rounded-lg font-medium hover:bg-accent/90 transition-custom shadow-md hover:shadow-lg">
+                执行追加
+              </button>
+            </div>
+          </div>
+
+          <!-- 删除砖块 -->
+          <div class="bg-gray-50 rounded-lg p-5 border-l-4 border-red-500 transition-custom hover:shadow-md">
+            <h3 class="font-semibold text-lg mb-4 flex items-center">
+              <i class="fa fa-trash text-red-500 mr-2"></i> 删除砖块
+            </h3>
+            <div class="space-y-4">
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">位置索引</label>
+                <input v-model="deleteIndex" type="number" min="0" placeholder="输入要删除的位置"
+                  class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500/50 focus:border-red-500 outline-none transition-custom">
+              </div>
+              <button @click="deleteFloor" :disabled="!hasFile"
+                class="w-full bg-red-500 text-white px-4 py-2 rounded-lg font-medium hover:bg-red-600 transition-custom shadow-md hover:shadow-lg">
+                执行删除
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 实时预览区 -->
+    <section>
+      <div class="bg-white rounded-xl p-6 card-shadow">
+        <div class="flex justify-between items-center mb-4">
+          <h2 class="text-xl font-bold flex items-center text-primary">
+            <i class="fa fa-code mr-2"></i> 实时预览
+          </h2>
+          <div class="flex space-x-2">
+            <button id="copyCode"
+              class="bg-gray-100 text-gray-700 px-3 py-1 rounded-lg text-sm hover:bg-gray-200 transition-custom flex items-center">
+              <i class="fa fa-copy mr-1"></i> 复制
+            </button>
+            <button id="downloadCode"
+              class="bg-gray-100 text-gray-700 px-3 py-1 rounded-lg text-sm hover:bg-gray-200 transition-custom flex items-center">
+              <i class="fa fa-download mr-1"></i> 下载
+            </button>
+          </div>
+        </div>
+        <div id="editor" style="height: 500px; border: 1px solid #e2e8f0; border-radius: 0.5rem;"></div>
+      </div>
+    </section>
+  </main>
+
+  <!-- 页脚 -->
+  <footer class="bg-dark text-white py-6">
+    <div class="container mx-auto px-4">
+      <div class="flex flex-col md:flex-row justify-between items-center">
+        <div class="mb-4 md:mb-0">
+          <p class="text-sm">© 2023 ADOFAI 编辑器 | 一个简洁的ADOFAI文件编辑工具</p>
+        </div>
+        <div class="flex space-x-4">
+          <a href="#" class="text-gray-400 hover:text-white transition-custom">
+            <i class="fa fa-github text-xl"></i>
+          </a>
+          <a href="#" class="text-gray-400 hover:text-white transition-custom">
+            <i class="fa fa-twitter text-xl"></i>
+          </a>
+          <a href="#" class="text-gray-400 hover:text-white transition-custom">
+            <i class="fa fa-envelope text-xl"></i>
+          </a>
+        </div>
+      </div>
+    </div>
+  </footer>
+
+  <!-- 提示消息 -->
+  <div id="toast"
+    class="fixed bottom-4 right-4 bg-dark text-white px-6 py-3 rounded-lg shadow-lg transform translate-y-20 opacity-0 transition-all duration-300 z-50">
+    <div class="flex items-center">
+      <i id="toastIcon" class="fa fa-check-circle text-green-400 mr-2"></i>
+      <span id="toastMessage">操作成功！</span>
+    </div>
+  </div>
+
+  <script>
+    // 初始化Vue应用
+    const app = Vue.createApp({
+      data() {
+        return {
+          // 操作表单数据
+          insertIndex: '',
+          insertDirection: 90,
+          appendDirection: 90,
+          deleteIndex: '',
+          // 文件状态
+          hasFile: false,
+          // 编辑器实例
+          editor: null,
+        };
+      },
+      mounted() {
+        // 初始化文件上传事件
+        this.initFileUpload();
+
+        // 初始化导出按钮事件
+        this.initExportButton();
+
+        // 初始化复制和下载代码按钮
+        this.initCodeButtons();
+
+        // 初始化重置文件按钮
+        this.initResetButton();
+
+        // 初始化编辑器
+        this.initEditor();
+      },
+      methods: {
+        // 初始化文件上传
+        initFileUpload() {
+          const inputFile = document.getElementById('inputFile');
+          inputFile.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            // 更新文件信息
+            document.getElementById('fileName').textContent = file.name;
+            document.getElementById('fileSize').textContent = this.formatFileSize(file.size);
+            document.getElementById('fileInfo').classList.remove('hidden');
+
+            // 读取文件内容
+            const reader = new FileReader();
+            reader.onload = (event) => {
+              try {
+                // 假设这里的ADOFAI.Level已经在外部定义
+                window.CurADOFAI = new ADOFAI.Level(event.target.result);
+                this.hasFile = true;
+                window.CurADOFAI.on('load', () => {
+  
+                  this.updateEditor();
+                  this.showToast('文件加载成功！', 'success');
+                });
+                window.CurADOFAI.load();
+
+              } catch (error) {
+                this.showToast('文件格式错误，请上传有效的ADOFAI文件！', 'error');
+                console.error('文件解析错误:', error);
+              }
+            };
+            reader.readAsText(file, 'utf-8');
+          });
+        },
+
+        // 初始化导出按钮
+        initExportButton() {
+          const exportBtn = document.getElementById('exportBtn');
+          exportBtn.addEventListener('click', () => {
+            if (!window.CurADOFAI) {
+              this.showToast('请先上传文件！', 'error');
+              return;
+            }
+
+            const blob = new Blob([window.CurADOFAI.export(null, null, 2)], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = "export.adofai";
+            a.click();
+            URL.revokeObjectURL(url);
+
+            this.showToast('文件导出成功！', 'success');
+          });
+        },
+
+        // 初始化复制和下载代码按钮
+        initCodeButtons() {
+          // 复制代码
+          document.getElementById('copyCode').addEventListener('click', () => {
+            if (!window.CurADOFAI) return;
+
+            const text = window.CurADOFAI.export(null, null, 2);
+            navigator.clipboard.writeText(text).then(() => {
+              this.showToast('代码已复制到剪贴板！', 'success');
+            }).catch(err => {
+              console.error('复制失败:', err);
+              this.showToast('复制失败，请手动复制！', 'error');
+            });
+          });
+
+          // 下载代码
+          document.getElementById('downloadCode').addEventListener('click', () => {
+            if (!window.CurADOFAI) return;
+
+            const text = window.CurADOFAI.export(null, null, 2);
+            const blob = new Blob([text], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = "adofai_code.txt";
+            a.click();
+            URL.revokeObjectURL(url);
+
+            this.showToast('代码已下载！', 'success');
+          });
+        },
+
+        // 初始化重置文件按钮
+        initResetButton() {
+          document.getElementById('resetFile').addEventListener('click', () => {
+            document.getElementById('inputFile').value = '';
+            document.getElementById('fileInfo').classList.add('hidden');
+            window.CurADOFAI = null;
+            this.hasFile = false;
+            this.editor.setValue('// 请上传ADOFAI文件以查看内容', -1);
+            this.showToast('文件已重置！', 'info');
+          });
+        },
+
+        // 初始化编辑器
+        initEditor() {
+          this.editor = ace.edit('editor');
+          this.editor.setTheme('ace/theme/monokai');
+          this.editor.session.setMode('ace/mode/json');
+          this.editor.setOptions({
+            fontSize: '14px',
+            showPrintMargin: false,
+            wrap: true,
+            autoScrollEditorIntoView: true,
+            enableBasicAutocompletion: true,
+            enableLiveAutocompletion: true
+          });
+
+          // 设置初始内容
+          this.editor.setValue('// 请上传ADOFAI文件以查看内容', -1);
+        },
+
+        // 更新编辑器内容
+        updateEditor() {
+          if (window.CurADOFAI) {
+            this.editor.setValue(window.CurADOFAI.export(null, null, 2), -1);
+          }
+        },
+
+        // 插入砖块
+        insertFloor() {
+          if (!window.CurADOFAI) return;
+
+          const index = parseInt(this.insertIndex);
+          const direction = parseInt(this.insertDirection);
+
+          if (isNaN(index) || isNaN(direction)) {
+            this.showToast('请输入有效的数字！', 'error');
+            return;
+          }
+
+          try {
+            window.CurADOFAI.floorOperation({ type: 'insert', id: index, direction });
+            this.updateEditor();
+            this.showToast(`已在索引 ${index} 后插入砖块！`, 'success');
+          } catch (error) {
+            this.showToast('插入失败: ' + error.message, 'error');
+            console.error('插入砖块错误:', error);
+          }
+        },
+
+        // 追加砖块
+        appendFloor() {
+          if (!window.CurADOFAI) return;
+
+          const direction = parseInt(this.appendDirection);
+
+          if (isNaN(direction)) {
+            this.showToast('请输入有效的方向角度！', 'error');
+            return;
+          }
+
+          try {
+            window.CurADOFAI.floorOperation({ type: 'append', direction });
+            this.updateEditor();
+            this.showToast('已追加新砖块！', 'success');
+          } catch (error) {
+            this.showToast('追加失败: ' + error.message, 'error');
+            console.error('追加砖块错误:', error);
+          }
+        },
+
+        // 删除砖块
+        deleteFloor() {
+          if (!window.CurADOFAI) return;
+
+          const index = parseInt(this.deleteIndex);
+
+          if (isNaN(index)) {
+            this.showToast('请输入有效的索引！', 'error');
+            return;
+          }
+
+          try {
+            window.CurADOFAI.floorOperation({ type: 'delete', id: index });
+            this.updateEditor();
+            this.showToast(`已删除索引 ${index} 的砖块！`, 'success');
+          } catch (error) {
+            this.showToast('删除失败: ' + error.message, 'error');
+            console.error('删除砖块错误:', error);
+          }
+        },
+
+        // 显示提示消息
+        showToast(message, type = 'info') {
+          const toast = document.getElementById('toast');
+          const toastMessage = document.getElementById('toastMessage');
+          const toastIcon = document.getElementById('toastIcon');
+
+          // 设置消息内容和图标
+          toastMessage.textContent = message;
+
+          // 根据类型设置图标
+          if (type === 'success') {
+            toastIcon.className = 'fa fa-check-circle text-green-400 mr-2';
+          } else if (type === 'error') {
+            toastIcon.className = 'fa fa-exclamation-circle text-red-400 mr-2';
+          } else if (type === 'warning') {
+            toastIcon.className = 'fa fa-exclamation-triangle text-yellow-400 mr-2';
+          } else {
+            toastIcon.className = 'fa fa-info-circle text-blue-400 mr-2';
+          }
+
+          // 显示提示
+          toast.classList.remove('translate-y-20', 'opacity-0');
+          toast.classList.add('translate-y-0', 'opacity-100');
+
+          // 3秒后隐藏提示
+          setTimeout(() => {
+            toast.classList.remove('translate-y-0', 'opacity-100');
+            toast.classList.add('translate-y-20', 'opacity-0');
+          }, 3000);
+        },
+
+        // 格式化文件大小
+        formatFileSize(bytes) {
+          if (bytes === 0) return '0 Bytes';
+          const k = 1024;
+          const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+          const i = Math.floor(Math.log(bytes) / Math.log(k));
+          return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+      }
+    });
+
+    app.mount('body');
+  </script>
+</body>
+
+</html>

@@ -1,0 +1,31 @@
+{
+  "name": "adofai-js",
+  "version": "2.9.7",
+  "main": "index.js",
+  "scripts": {
+    "build": "webpack",
+    "tsc": "tsc",
+    "dev": "webpack --mode=development"
+  },
+  "keywords": ["adofai", "adofai-js", "adofai-ts", "adofai-ts-lib"],
+  "author": "Xbodwf",
+  "license": "BSD-3-Clause",
+  "homepage": "https://xbodwf.github.io/packages/adofai-js/",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Xbodwf/ADOFAI-JS.git"
+  },
+  "bugs": "https://github.com/Xbodwf/ADOFAI-JS/issues",
+  "description": "A Javascript library for ADOFAI levels.",
+  "devDependencies": {
+    "@babel/core": "^7.27.1",
+    "@babel/preset-env": "^7.27.2",
+    "@types/node": "^20.11.0",
+    "babel-loader": "^10.0.0",
+    "install": "^0.13.0",
+    "ts-loader": "^9.5.1",
+    "typescript": "^5.3.3",
+    "webpack": "^5.99.9",
+    "webpack-cli": "^6.0.1"
+  }
+}

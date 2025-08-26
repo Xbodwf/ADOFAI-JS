@@ -1,0 +1,26 @@
+<input type="file" id="inputFile">
+<button id="export">Export as ADOFAI</button>
+<script src="../dist/adofai.min.js"></script>
+<script>
+    let fl, reader;
+    document.querySelector('#inputFile').addEventListener('change', f => {
+        fl = f.target.files[0];
+        reader = new FileReader();
+        reader.onload = () => {
+            const a = new ADOFAI.Level(reader.result);
+            window.CurADOFAI = a;
+        }
+        reader.readAsText(fl, 'utf-8')
+
+    });
+    document.querySelector('#export').addEventListener('click', () => {
+        const blob = new Blob([CurADOFAI.export(null,null,2)],{'type':'text/plain'})
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "export.adofai";
+        a.click();
+        URL.revokeObjectURL(url);
+
+    })
+</script>
