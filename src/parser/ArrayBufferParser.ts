@@ -1,5 +1,21 @@
+import Parser from "./Parser";
+import StringParser from "./StringParser";
+
 const BOM = new Uint8Array([0xef, 0xbb, 0xbf]);
 const COMMA = new Uint8Array([44]); // ASCII for ','
+
+export class ArrayBufferParser extends Parser<ArrayBuffer | string, any> {
+  parse(input: ArrayBuffer | string): any {
+    if (typeof input === "string") {
+      return StringParser.prototype.parse.call(StringParser.prototype, input);
+    } else {
+      return StringParser.prototype.parse.call(StringParser.prototype, decodeStringFromUTF8BOM(normalizeJsonArrayBuffer(stripBOM(input))));
+    }
+  }
+  stringify(obj: any): string {
+    return JSON.stringify(obj);
+  }
+}
 
 export function stripBOM(buffer: ArrayBuffer): ArrayBuffer {
   const view = new Uint8Array(buffer);
@@ -76,53 +92,10 @@ export function normalizeJsonArrayBuffer(buffer: ArrayBuffer): ArrayBuffer {
   return result.buffer;
 }
 
-export function normalizeJsonString(text: string): string {
-  const encoder = new TextEncoder();
-  const encoded = encoder.encode(text);
-  const normalizedBuffer = normalizeJsonArrayBuffer(encoded.buffer);
-  const decoder = new TextDecoder('utf-8');
-  return decoder.decode(normalizedBuffer);
-}
-
 export function decodeStringFromUTF8BOM(buffer: ArrayBuffer): string {
   const strippedBuffer = stripBOM(buffer);
   const decoder = new TextDecoder('utf-8');
   return decoder.decode(strippedBuffer);
 }
 
-export function encodeStringAsUTF8BOM(text: string): ArrayBuffer {
-  const encoder = new TextEncoder();
-  const encoded = encoder.encode(text);
-  const bomAndText = new Uint8Array(BOM.length + encoded.length);
-  bomAndText.set(BOM, 0);
-  bomAndText.set(encoded, BOM.length);
-  return bomAndText.buffer;
-}
-
-export function decodeJsonFromString(text: string): any {
-  return JSON.parse(normalizeJsonString(text));
-}
-
-export function decodeJsonFromArrayBuffer(buffer: ArrayBuffer): any {
-  return JSON.parse(
-    decodeStringFromUTF8BOM(normalizeJsonArrayBuffer(stripBOM(buffer))),
-  );
-}
-
-export function encodeJsonAsString(obj: any): string {
-  return JSON.stringify(obj);
-}
-
-export function encodeJsonAsArrayBufferUTF8BOM(obj: any): ArrayBuffer {
-  return encodeStringAsUTF8BOM(encodeJsonAsString(obj));
-}
-
-export function parse(text: string): any {
-  return decodeJsonFromString(text);
-}
-
-export function stringify(obj: any): string {
-  return encodeJsonAsString(obj);
-}
-
-export default { parse, stringify };
+export default ArrayBufferParser;

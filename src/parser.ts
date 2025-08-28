@@ -1,4 +1,4 @@
-import Parser from "./parser/Parser";
+import Parser from "./parser/index";
 import BufferParser from './parser/BufferParser';
 import ArrayBufferParser from "./parser/ArrayBufferParser";
 import StringParser from "./parser/StringParser";

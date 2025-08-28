@@ -1,3 +1,5 @@
+import Parser from "./Parser";
+import StringParser from "./StringParser";
 
 let BOM: Buffer;
 let COMMA: Buffer;
@@ -7,10 +9,21 @@ try {
   COMMA = Buffer.from(",");
 } catch (e) {
   console.warn('Buffer is not available in current environment, try to use ArrayBufferParser');
-  
-  // Provide dummy implementations to avoid errors during module loading
   BOM = { equals: () => false, subarray: () => null } as any;
   COMMA = { equals: () => false, subarray: () => null } as any;
+}
+
+export class BufferParser extends Parser<Buffer | string, any> {
+  parse(input: Buffer | string): any {
+    if (typeof input === "string") {
+      return StringParser.prototype.parse.call(StringParser.prototype, input);
+    } else {
+      return StringParser.prototype.parse.call(StringParser.prototype, decodeStringFromUTF8BOM(normalizeJsonBuffer(stripBOM(input))));
+    }
+  }
+  stringify(obj: any): string {
+    return JSON.stringify(obj);
+  }
 }
 
 export function stripBOM(buffer: Buffer): Buffer {
@@ -73,44 +86,8 @@ export function normalizeJsonBuffer(text: Buffer): Buffer {
   return Buffer.concat(builder)
 }
 
-export function normalizeJsonString(text: string): string {
-  return normalizeJsonBuffer(Buffer.from(text, "utf-8")).toString("utf-8")
-}
-
 export function decodeStringFromUTF8BOM(buffer: Buffer): string {
   return stripBOM(buffer).toString("utf-8")
 }
 
-export function encodeStringAsUTF8BOM(text: string): Buffer {
-  return Buffer.concat([BOM, stripBOM(Buffer.from(text, "utf-8"))])
-}
-
-export function decodeJsonFromString(text: string): any {
-  return JSON.parse(normalizeJsonString(text))
-}
-
-export function decodeJsonFromBuffer(buffer: Buffer): any {
-  return JSON.parse(
-    decodeStringFromUTF8BOM(normalizeJsonBuffer(stripBOM(buffer))),
-  )
-}
-
-export function encodeJsonAsString(obj: any): string {
-  return JSON.stringify(obj)
-}
-
-export function encodeJsonAsBufferUTF8BOM(obj: any): Buffer {
-  return encodeStringAsUTF8BOM(encodeJsonAsString(obj))
-}
-
-export function parse(text: string): any {
-  return decodeJsonFromString(text)
-}
-
-export function stringify(obj: any): string {
-  return encodeJsonAsString(obj)
-}
-
-export default {parse,stringify}
-
-//BufferParser by Yqloss
+export default BufferParser;

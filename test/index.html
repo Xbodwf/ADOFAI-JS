@@ -1,5 +1,6 @@
 <input type="file" id="inputFile">
 <button id="export">Export as ADOFAI</button>
+<script src="./Buffer.js"></script>
 <script src="../dist/index.js"></script>
 <script type="module">
     let fl, reader;
@@ -7,15 +8,18 @@
         fl = f.target.files[0];
         reader = new FileReader();
         reader.onload = () => {
-            const a = new ADOFAI.Level(reader.result);
+            const a = new ADOFAI.Level(reader.result, new ADOFAI.Parsers.BufferParser());
             window.CurADOFAI = a;
+            a.on('load', () => {
+                alert("加载已完成")
+            })
             a.load();
         }
-        reader.readAsText(fl, 'utf-8')
+        reader.readAsText(fl, 'utf-8-bom')
 
     });
     document.querySelector('#export').addEventListener('click', () => {
-        const blob = new Blob([CurADOFAI.export(null,null,2)],{'type':'text/plain'})
+        const blob = new Blob([CurADOFAI.export(null, null, 2)], { 'type': 'text/plain' })
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url;

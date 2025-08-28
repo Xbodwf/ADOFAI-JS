@@ -1,23 +1,16 @@
-class StringParser {
-    static parse(text: string | null, reviver?: (key: string, value: any) => any): any {
+import Parser from "./Parser";
+
+class StringParser extends Parser<string, any> {
+    parse(text: string | null, reviver?: (key: string, value: any) => any): any {
         if (text == null) return null;
         const result = new ParserX(text).parseValue();
         if (typeof reviver === "function") {
-            return this._applyReviver("", result, reviver);
+            return StringParser._applyReviver("", result, reviver);
         }
         return result;
     }
 
-    static parsePartially(text: string | null, upToSection: string | null, reviver?: (key: string, value: any) => any): any {
-        if (text == null) return null;
-        const result = new ParserX(text, upToSection).parseValue();
-        if (typeof reviver === "function") {
-            return this._applyReviver("", result, reviver);
-        }
-        return result;
-    }
-
-    static stringify(value: any, replacer?: (key: string, value: any) => any, space?: string | number): string {
+    stringify(value: any, replacer?: (key: string, value: any) => any, space?: string | number): string {
         const serializer = new Serializer(replacer, space);
         return serializer.serialize(value);
     }
@@ -26,12 +19,12 @@ class StringParser {
         if (value && typeof value === "object") {
             if (Array.isArray(value)) {
                 for (let i = 0; i < value.length; i++) {
-                    value[i] = this._applyReviver(i.toString(), value[i], reviver);
+                    value[i] = StringParser._applyReviver(i.toString(), value[i], reviver);
                 }
             } else {
                 for (const prop in value) {
                     if (Object.prototype.hasOwnProperty.call(value, prop)) {
-                        value[prop] = this._applyReviver(prop, value[prop], reviver);
+                        value[prop] = StringParser._applyReviver(prop, value[prop], reviver);
                     }
                 }
             }
