@@ -9,7 +9,7 @@
     "outDir": "./dist",
     "rootDir": "./",
     "declaration": true,
-    "sourceMap": true,
+    "sourceMap": false,
     "moduleResolution": "node"
   },
   "include": ["src/**/*", "index.ts"],

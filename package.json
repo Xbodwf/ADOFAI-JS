@@ -1,12 +1,12 @@
 {
   "name": "adofai",
-  "version": "2.9.14",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "version": "2.9.15",
+  "main": "dist/src/index.js",
+  "types": "dist/src/index.d.ts",
   "scripts": {
     "webpack": "webpack",
     "tsc": "tsc",
-    "build": "pnpm tsc && pnpm webpack"
+    "build": "pnpm webpack && pnpm tsc"
   },
   "keywords": [
     "adofai",
