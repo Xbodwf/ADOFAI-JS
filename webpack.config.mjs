@@ -9,7 +9,7 @@ export default {
     },
     globalObject: 'globalThis',
     filename: 'index.js',
-    path: path.resolve('dist')
+    path: path.resolve('dist/umd')
   },
   module: {
     rules: [

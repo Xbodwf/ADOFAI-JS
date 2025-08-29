@@ -1,17 +1,21 @@
 {
   "name": "adofai",
-  "version": "2.9.12",
-  "main": "index.js",
+  "version": "2.9.14",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
   "scripts": {
-    "build": "webpack",
+    "webpack": "webpack",
     "tsc": "tsc",
-    "dev": "webpack --mode=development"
+    "build": "pnpm tsc && pnpm webpack"
   },
   "keywords": [
     "adofai",
     "adofai-js",
     "adofai-ts",
     "adofai-ts-lib"
+  ],
+  "files": [
+    "dist"
   ],
   "author": "Xbodwf",
   "license": "BSD-3-Clause",
