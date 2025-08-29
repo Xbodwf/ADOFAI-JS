@@ -1,7 +1,7 @@
 import path from 'path'
 
 export default {
-  entry: './index.ts',
+  entry: './src/index.ts',
   output: {
     library: {
       name: 'ADOFAI',
