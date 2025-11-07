@@ -11,6 +11,12 @@ interface Action {
   [key: string]: any;
 }
 
+export enum EffectCleanerType {
+  include = 'include',
+  exclude = 'exclude',
+  special = 'special'
+}
+
 /**
     * @param {Array} tiles ADOFAI Tiles from ADOFAI.Level
     * @returns {Array} new Tiles
@@ -45,8 +51,8 @@ function clearDecorations(tiles: Tile[]): Tile[] {
 function clearEvents(eventTypes: string[], tiles: Tile[]): Tile[] {
   return tiles.map(tile => {
     const newTile = { ...tile }; 
-    if (Array.isArray(newTile.actions)) {
-      newTile.actions = newTile.actions.filter(action => 
+    if (Array.isArray(tile.actions)) {
+      newTile.actions = tile.actions.filter(action => 
          !eventTypes.includes(action.eventType)
       );
     }
@@ -63,8 +69,8 @@ function clearEvents(eventTypes: string[], tiles: Tile[]): Tile[] {
 function keepEvents(eventTypes: string[], tiles: Tile[]): Tile[] {
   return tiles.map(tile => {
     const newTile = { ...tile }; 
-    if (Array.isArray(newTile.actions)) {
-      newTile.actions = newTile.actions.filter(action => 
+    if (Array.isArray(tile.actions)) {
+      newTile.actions = tile.actions.filter(action => 
         eventTypes.includes(action.eventType)
       );
     }

@@ -436,3 +436,4 @@ class Serializer {
 }
 
 export default StringParser;
+export { ParserX, Serializer };

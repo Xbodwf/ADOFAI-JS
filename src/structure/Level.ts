@@ -1,9 +1,10 @@
 import { AdofaiEvent, LevelOptions, EventCallback, GuidCallback, Tile, ParseProvider } from './interfaces';
 import pathData from '../pathdata';
-import exportAsADOFAI from '../format'
+import exportAsADOFAI from './format'
 import BaseParser from '../parser';
-import effectProcessor from '../effectProcessor';
-import * as presets from '../presets';
+import effectProcessor from '../filter/effectProcessor';
+import { EffectCleanerType } from '../filter/effectProcessor';
+import * as presets from '../filter/presets';
 
 export class Level {
     private _events: Map<string, EventCallback[]>;
@@ -57,11 +58,11 @@ export class Level {
                 this.angleData = pathData.parseToangleData(options['pathData']!);
             } else {
                 if (options && typeof options === 'object' && options !== null && typeof options.angleData !== 'undefined') {
-                this.angleData = options['angleData']!;
-            } else {
-                reject("There is not any angle datas.");
-                return;
-            }
+                    this.angleData = options['angleData']!;
+                } else {
+                    reject("There is not any angle datas.");
+                    return;
+                }
             }
             if (options && typeof options === 'object' && options !== null && typeof options.actions !== 'undefined') {
                 this.actions = options['actions']!;
@@ -242,9 +243,14 @@ export class Level {
             actions: matches.map(item => item.action)
         };
     }
+
     public calculateTileCoordinates(): void {
+        console.warn("calculateTileCoordinates is deprecated. Use calculateTilePosition instead.");
+    }
+    public calculateTilePosition(): number[][] {
         let angles = this.angleData;
         let floats: number[] = [];
+        let positions: number[][] = [];
         let startPos = [0, 0];
 
         for (let i = 0; i < this.tiles.length; i++) {
@@ -263,23 +269,27 @@ export class Level {
                 let pevent = this.getActionsByIndex('PositionTrack', i).actions[0];
                 if (pevent.positionOffset) {
                     if (pevent['editorOnly'] !== true && pevent['editorOnly'] !== 'Enabled') {
-                        startPos[0] += pevent['positionOffset'][0];
-                        startPos[1] += pevent['positionOffset'][1];
+                        startPos[0] += pevent['positionOffset'][0] as number;
+                        startPos[1] += pevent['positionOffset'][1] as number;
                     }
                 }
             }
             startPos[0] += Math.cos(angle1 * Math.PI / 180);
             startPos[1] += Math.sin(angle1 * Math.PI / 180);
+            let tempPos = [
+                Number(startPos[0]),
+                Number(startPos[1])
+            ];
+            positions.push(tempPos);
             if (typeof currentTile !== 'undefined') {
-                currentTile.position = [
-                    Number(startPos[0].toFixed(8)),
-                    Number(startPos[1].toFixed(8))
-                ];
+                currentTile.position = tempPos;;
                 currentTile.extraProps!.angle1 = angle1;
                 currentTile.extraProps!.angle2 = angle2 - 180;
                 currentTile.extraProps!.cangle = i === floats.length ? floats[i - 1] + 180 : floats[i];
             }
         }
+
+        return positions;
     }
     public floorOperation(info: { type: 'append' | 'insert' | 'delete', direction: number, id?: number } = { type: 'append', direction: 0 }): void {
         switch (info.type) {
@@ -329,23 +339,20 @@ export class Level {
         this.clearEvent(presets[presetName as keyof typeof presets]);
     }
 
-    public clearEvent(preset: { type: string, events: string[] }): void {
-        switch (preset.type) {
-            case 'include':
-                this.tiles = effectProcessor.keepEvents(preset.events, this.tiles) as Tile[];
-                break;
-            case 'exclude':
-                this.tiles = effectProcessor.clearEvents(preset.events, this.tiles) as Tile[];
-                break;
+    public clearEvent(preset: { type: EffectCleanerType | string, events: string[] }): void {
+        if (preset.type == EffectCleanerType.include) {
+            this.tiles = effectProcessor.keepEvents(preset.events, this.tiles) as Tile[];
+        } else if (preset.type == EffectCleanerType.exclude) {
+            this.tiles = effectProcessor.clearEvents(preset.events, this.tiles) as Tile[];
         }
     }
-    public export(type: 'string' | 'object', indent?: number, useAdofaiStyle: boolean = true): string | Record<string, any> {
+    public export(type: 'string' | 'object', indent: number, useAdofaiStyle: boolean = true,indentChar:string,indentStep: number): string | Record<string, any> {
         const ADOFAI = {
             angleData: this._flattenAngleDatas(this.tiles),
             settings: this.settings,
             actions: this._flattenActionsWithFloor(this.tiles),
             decorations: this._flattenDecorationsWithFloor(this.tiles)
         };
-        return type === 'object' ? ADOFAI : exportAsADOFAI(ADOFAI, indent, useAdofaiStyle);
+        return type === 'object' ? ADOFAI : exportAsADOFAI(ADOFAI, indent, useAdofaiStyle,indentChar,indentStep);
     }
 }

@@ -1,5 +1,7 @@
+import { EffectCleanerType } from "./effectProcessor";
+
 export interface Preset {
-    type: 'include'|'exclude'|"special";
+    type: EffectCleanerType | string;
     events: string[];
     [key: string]: any;
 }
@@ -76,7 +78,7 @@ export const preset_noeffect_completely: Preset = {
 }
 
 export const preset_inner_no_deco: Preset = {
-    type: "special", events: [
+    type: 'special', events: [
         "MoveDecorations",
         "SetText",
         "SetObject",

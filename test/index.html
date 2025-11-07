@@ -1,14 +1,14 @@
 <input type="file" id="inputFile">
 <button id="export">Export as ADOFAI</button>
 <script src="./Buffer.js"></script>
-<script src="../dist/index.js"></script>
+<script src="../dist/umd/index.js"></script>
 <script type="module">
     let fl, reader;
     document.querySelector('#inputFile').addEventListener('change', f => {
         fl = f.target.files[0];
         reader = new FileReader();
         reader.onload = () => {
-            const a = new ADOFAI.Level(reader.result, new ADOFAI.Parsers.BufferParser());
+            const a = new ADOFAI.Level(reader.result, new ADOFAI.Parsers.BufferParserX());
             window.CurADOFAI = a;
             a.on('load', () => {
                 alert("加载已完成")

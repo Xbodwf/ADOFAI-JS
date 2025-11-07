@@ -1,6 +1,3 @@
-import { Level } from './structure/Level';
-import { AdofaiEvent, LevelOptions, EventCallback, GuidCallback, Tile, ParseProvider } from './structure/interfaces';
+export { Level as default } from './structure/Level';
 
-export { AdofaiEvent, LevelOptions, EventCallback, GuidCallback, Tile, ParseProvider };
-
-export default Level;
+export * from './structure/interfaces';

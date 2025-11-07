@@ -12,7 +12,7 @@ class BaseParser {
         * @returns {LevelOptions} ADOFAI File Object
     */
     static parseAsObject(t: string, provider?: ParseProvider): LevelOptions {
-        const parser = provider || new StringParser();
+        const parser = provider || JSON;
         return parser.parse(BaseParser.parseAsText(t)) as LevelOptions;
     }
 

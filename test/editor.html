@@ -5,6 +5,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ADOFAI编辑器</title>
+  <script src="./Buffer.js"></script>
   <!-- 引入Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
   <!-- 引入Font Awesome -->
@@ -15,7 +16,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.10.0/ace.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.10.0/mode-json.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.10.0/theme-monokai.min.js"></script>
-  <script src="../dist/index.js"></script>
+  <script src="../dist/umd/index.js"></script>
 
   <!-- 配置Tailwind -->
   <script>
@@ -280,7 +281,7 @@
             reader.onload = (event) => {
               try {
                 // 假设这里的ADOFAI.Level已经在外部定义
-                window.CurADOFAI = new ADOFAI.Level(event.target.result);
+                window.CurADOFAI = new ADOFAI.Level(event.target.result,new ADOFAI.Parsers.BufferParser());
                 this.hasFile = true;
                 window.CurADOFAI.on('load', () => {
   
