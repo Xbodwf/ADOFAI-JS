@@ -189,7 +189,9 @@ export class Level {
         return arr.map(item => item.direction!);
     }
     private _flattenActionsWithFloor(arr: Tile[]): AdofaiEvent[] {
-        return arr.map(item => item.actions).flat();
+        return arr.flatMap((tile, index) =>
+            (tile?.actions || []).map(({ floor, ...rest }) => ({ floor: index, ...rest } as AdofaiEvent))
+        );
     }
     private _filterByFloorwithDeco(arr: AdofaiEvent[], i: number): AdofaiEvent[] {
         let actionT = arr.filter(item => item.floor === i);
@@ -346,13 +348,13 @@ export class Level {
             this.tiles = effectProcessor.clearEvents(preset.events, this.tiles) as Tile[];
         }
     }
-    public export(type: 'string' | 'object', indent: number, useAdofaiStyle: boolean = true,indentChar:string,indentStep: number): string | Record<string, any> {
+    public export(type: 'string' | 'object', indent: number, useAdofaiStyle: boolean = true, indentChar: string, indentStep: number): string | Record<string, any> {
         const ADOFAI = {
             angleData: this._flattenAngleDatas(this.tiles),
             settings: this.settings,
             actions: this._flattenActionsWithFloor(this.tiles),
             decorations: this._flattenDecorationsWithFloor(this.tiles)
         };
-        return type === 'object' ? ADOFAI : exportAsADOFAI(ADOFAI, indent, useAdofaiStyle,indentChar,indentStep);
+        return type === 'object' ? ADOFAI : exportAsADOFAI(ADOFAI, indent, useAdofaiStyle, indentChar, indentStep);
     }
 }
