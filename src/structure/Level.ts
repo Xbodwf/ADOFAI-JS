@@ -4,12 +4,12 @@ import exportAsADOFAI from './format'
 import BaseParser from '../parser';
 import effectProcessor from '../filter/effectProcessor';
 import { EffectCleanerType } from '../filter/effectProcessor';
+import { v4 as uuid } from 'uuid';
 import * as presets from '../filter/presets';
 
 export class Level {
     private _events: Map<string, EventCallback[]>;
     private guidCallbacks: Map<string, GuidCallback>;
-    private guidCounter: number;
     private _options: string | LevelOptions;
     private _provider?: ParseProvider;
     public angleData!: number[];
@@ -23,14 +23,13 @@ export class Level {
     constructor(opt: string | LevelOptions, provider?: ParseProvider) {
         this._events = new Map();
         this.guidCallbacks = new Map();
-        this.guidCounter = 0;
 
         this._options = opt;
         this._provider = provider;
     }
 
     generateGUID(): string {
-        return `event_${Date.now()}_${this.guidCounter++}_${Math.floor(Math.random() * 1000)}`;
+        return `event_${uuid()}`;
     }
 
     load(): Promise<boolean> {
