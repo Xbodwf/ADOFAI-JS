@@ -154,25 +154,30 @@ export class Level {
         return m;
     }
 
+    private _normalizeAngle(v: number): number {
+        return ((v % 360) + 360) % 360;
+    }
+
     private _parsechangedAngle(agd: number, i: number, isTwirl: number, lstagd: number): number {
         let prev = 0;
         if (i === 0) { this._angleDir = 180; }
         if (agd === 999) {
-            this._angleDir = lstagd;
+            this._angleDir = this._normalizeAngle(lstagd);
             if (isNaN(this._angleDir)) {
                 this._angleDir = 0;
             }
             prev = 0;
         } else {
+            const delta = this._normalizeAngle(this._angleDir - agd);
             if (isTwirl === 0) {
-                prev = (this._angleDir - agd) % 360;
+                prev = delta;
             } else {
-                prev = 360 - (this._angleDir - agd) % 360;
+                prev = this._normalizeAngle(360 - delta);
             }
             if (prev === 0) {
                 prev = 360;
             }
-            this._angleDir = agd + 180;
+            this._angleDir = this._normalizeAngle(agd + 180);
         }
         return prev;
     }
@@ -198,27 +203,30 @@ export class Level {
     }
 
     private _flattenDecorationsWithFloor(arr: Tile[]): AdofaiEvent[] {
-        return arr.map(item => item.addDecorations).flat() as AdofaiEvent[];
+        return arr.flatMap((tile, index) =>
+            (tile?.addDecorations || []).map(({ floor, ...rest }) => ({ floor: index, ...rest } as AdofaiEvent))
+        );
     }
     private _parseAngle(agd: number[], i: number, isTwirl: number): number {
         let prev = 0;
         if (i === 0) { this._angleDir = 180; }
         if (agd[i] === 999) {
-            this._angleDir = agd[i - 1];
+            this._angleDir = this._normalizeAngle(agd[i - 1]);
             if (isNaN(this._angleDir)) {
                 this._angleDir = 0;
             }
             prev = 0;
         } else {
+            const delta = this._normalizeAngle(this._angleDir - agd[i]);
             if (isTwirl === 0) {
-                prev = (this._angleDir - agd[i]) % 360;
+                prev = delta;
             } else {
-                prev = 360 - (this._angleDir - agd[i]) % 360;
+                prev = this._normalizeAngle(360 - delta);
             }
             if (prev === 0) {
                 prev = 360;
             }
-            this._angleDir = agd[i] + 180;
+            this._angleDir = this._normalizeAngle(agd[i] + 180);
         }
         return prev;
     }
