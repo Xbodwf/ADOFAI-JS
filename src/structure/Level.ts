@@ -283,8 +283,6 @@ export class Level {
                     }
                 }
             }
-            startPos[0] += Math.cos(angle1 * Math.PI / 180);
-            startPos[1] += Math.sin(angle1 * Math.PI / 180);
             let tempPos = [
                 Number(startPos[0]),
                 Number(startPos[1])
@@ -296,6 +294,8 @@ export class Level {
                 currentTile.extraProps!.angle2 = angle2 - 180;
                 currentTile.extraProps!.cangle = i === floats.length ? floats[i - 1] + 180 : floats[i];
             }
+            startPos[0] += Math.cos(angle1 * Math.PI / 180);
+            startPos[1] += Math.sin(angle1 * Math.PI / 180);
         }
 
         return positions;
