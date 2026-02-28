@@ -1,4 +1,4 @@
-import { AdofaiEvent, LevelOptions, EventCallback, GuidCallback, Tile, ParseProvider } from './interfaces';
+import { AdofaiEvent, LevelOptions, EventCallback, GuidCallback, Tile, ParseProvider, ParseProgressEvent } from './interfaces';
 import pathData from '../pathdata';
 import exportAsADOFAI from './format'
 import BaseParser from '../parser';
@@ -32,10 +32,33 @@ export class Level {
         return `event_${uuid()}`;
     }
 
+    /**
+     * 触发进度事件
+     */
+    private _emitProgress(
+        stage: ParseProgressEvent['stage'],
+        current: number,
+        total: number,
+        data?: ParseProgressEvent['data']
+    ): void {
+        const progressEvent: ParseProgressEvent = {
+            stage,
+            current,
+            total,
+            percent: total > 0 ? Math.round((current / total) * 100) : 0,
+            data
+        };
+        this.trigger('parse:progress', progressEvent);
+        this.trigger(`parse:${stage}`, progressEvent);
+    }
+
     load(): Promise<boolean> {
         return new Promise((resolve, reject) => {
             let opt = this._options;
             let options: LevelOptions;
+
+            // 阶段1: 解析输入
+            this._emitProgress('start', 0, 0);
 
             switch (typeof opt) {
                 case 'string':
@@ -53,16 +76,32 @@ export class Level {
                     reject("Options must be String or Object");
                     return;
             }
-            if (options && typeof options === 'object' && options !== null && typeof options.pathData !== 'undefined') {
-                this.angleData = pathData.parseToangleData(options['pathData']!);
+
+            // 阶段2: 处理 pathData 或 angleData
+            const hasPathData = options && typeof options === 'object' && options !== null && typeof options.pathData !== 'undefined';
+            const hasAngleData = options && typeof options === 'object' && options !== null && typeof options.angleData !== 'undefined';
+
+            if (hasPathData) {
+                const pathDataStr = options['pathData']!;
+                // 开始转换 pathData
+                this._emitProgress('pathData', 0, pathDataStr.length, { source: pathDataStr });
+                this.angleData = pathData.parseToangleData(pathDataStr);
+                // 转换完成，返回结果
+                this._emitProgress('pathData', pathDataStr.length, pathDataStr.length, {
+                    source: pathDataStr,
+                    processed: this.angleData
+                });
+            } else if (hasAngleData) {
+                this.angleData = options['angleData']!;
+                this._emitProgress('angleData', this.angleData.length, this.angleData.length, {
+                    processed: this.angleData
+                });
             } else {
-                if (options && typeof options === 'object' && options !== null && typeof options.angleData !== 'undefined') {
-                    this.angleData = options['angleData']!;
-                } else {
-                    reject("There is not any angle datas.");
-                    return;
-                }
+                reject("There is not any angle datas.");
+                return;
             }
+
+            // 阶段3: 提取其他数据
             if (options && typeof options === 'object' && options !== null && typeof options.actions !== 'undefined') {
                 this.actions = options['actions']!;
             } else {
@@ -79,12 +118,16 @@ export class Level {
             } else {
                 this.__decorations = [];
             }
+
             this.tiles = [];
             this._angleDir = -180;
             this._twirlCount = 0;
+
+            // 阶段4: 创建 Tile 数组（带进度回调）
             this._createArray(this.angleData.length, { angleData: this.angleData, actions: this.actions, decorations: this.__decorations })
                 .then(e => {
                     this.tiles = e;
+                    this._emitProgress('complete', this.angleData.length, this.angleData.length);
                     this.trigger('load', this);
                     resolve(true);
                 }).catch(e => {
@@ -132,16 +175,40 @@ export class Level {
     }
 
     private async _createArray(xLength: number, opt: { angleData: number[], actions: AdofaiEvent[], decorations: AdofaiEvent[] }): Promise<Tile[]> {
-        let m = Array.from({ length: xLength }, (_, i) => ({
-            direction: opt.angleData[i],
-            _lastdir: opt.angleData[i - 1] || 0,
-            actions: this._filterByFloor(opt.actions, i),
-            angle: this._parseAngle(opt.angleData, i, this._twirlCount % 2),
-            addDecorations: this._filterByFloorwithDeco(opt.decorations, i),
-            twirl: this._twirlCount,
-            extraProps: {}
-        }));
-        return m;
+        const tiles: Tile[] = [];
+        const batchSize = Math.max(1, Math.floor(xLength / 100)); // 每批处理的数量，至少1个
+
+        for (let i = 0; i < xLength; i++) {
+            // 计算相对角度（会更新 _twirlCount）
+            const angle = this._parseAngle(opt.angleData, i, this._twirlCount % 2);
+
+            const tile: Tile = {
+                direction: opt.angleData[i],
+                _lastdir: opt.angleData[i - 1] || 0,
+                actions: this._filterByFloor(opt.actions, i),
+                angle: angle,
+                addDecorations: this._filterByFloorwithDeco(opt.decorations, i),
+                twirl: this._twirlCount,
+                extraProps: {}
+            };
+
+            tiles.push(tile);
+
+            // 每处理一批或最后一个时触发进度事件
+            if (i % batchSize === 0 || i === xLength - 1) {
+                this._emitProgress('relativeAngle', i + 1, xLength, {
+                    tileIndex: i,
+                    tile: tile,
+                    angle: opt.angleData[i],
+                    relativeAngle: angle
+                });
+                // 让出事件循环，避免阻塞
+                if (i % (batchSize * 10) === 0) {
+                    await new Promise(r => setTimeout(r, 0));
+                }
+            }
+        }
+        return tiles;
     }
 
     private _changeAngle(): Tile[] {
@@ -256,47 +323,84 @@ export class Level {
     public calculateTileCoordinates(): void {
         console.warn("calculateTileCoordinates is deprecated. Use calculateTilePosition instead.");
     }
+
+    /**
+     * 计算所有 Tile 的坐标位置
+     * 触发 parse:tilePosition 和 parse:progress 事件报告进度
+     * 
+     * 性能优化：预先构建 PositionTrack 索引，避免循环内重复遍历
+     */
     public calculateTilePosition(): number[][] {
-        let angles = this.angleData;
-        let floats: number[] = [];
-        let positions: number[][] = [];
-        let startPos = [0, 0];
+        const angles = this.angleData;
+        const totalTiles = this.tiles.length;
+        const positions: number[][] = [];
+        const startPos = [0, 0];
 
-        for (let i = 0; i < this.tiles.length; i++) {
-            let value = angles[i];
-            if (value === 999) {
-                value = angles[i - 1] + 180;
-            }
-            floats.push(value);
-        }
-
-        for (let i = 0; i <= floats.length; i++) {
-            let angle1 = Number((i === floats.length) ? floats[i - 1] : floats[i]) || 0;
-            let angle2 = Number((i === 0) ? 0 : floats[i - 1]) || 0;
-            let currentTile = this.tiles[i];
-            if (this.getActionsByIndex('PositionTrack', i).count > 0) {
-                let pevent = this.getActionsByIndex('PositionTrack', i).actions[0];
-                if (pevent.positionOffset) {
-                    if (pevent['editorOnly'] !== true && pevent['editorOnly'] !== 'Enabled') {
-                        startPos[0] += pevent['positionOffset'][0] as number;
-                        startPos[1] += pevent['positionOffset'][1] as number;
-                    }
+        // 性能优化：预先构建 PositionTrack 索引 Map，O(n) 预处理
+        const positionTrackMap = new Map<number, AdofaiEvent>();
+        for (const action of this.actions) {
+            if (action.eventType === 'PositionTrack' && action.positionOffset) {
+                if (action.editorOnly !== true && action.editorOnly !== 'Enabled') {
+                    positionTrackMap.set(action.floor, action);
                 }
             }
-            let tempPos = [
-                Number(startPos[0]),
-                Number(startPos[1])
-            ];
+        }
+
+        // 触发开始事件
+        this._emitProgress('tilePosition', 0, totalTiles);
+
+        // 预处理 floats 数组
+        const floats = new Array<number>(totalTiles);
+        for (let i = 0; i < totalTiles; i++) {
+            floats[i] = angles[i] === 999 ? angles[i - 1] + 180 : angles[i];
+        }
+
+        // 进度事件触发频率：每 1% 或最少每 100 个 tile 触发一次
+        const progressInterval = Math.max(100, Math.floor(totalTiles / 100));
+
+        for (let i = 0; i <= totalTiles; i++) {
+            const isLastTile = i === totalTiles;
+            const angle1 = isLastTile ? (floats[i - 1] || 0) : floats[i];
+            const angle2 = i === 0 ? 0 : (floats[i - 1] || 0);
+            const currentTile = this.tiles[i];
+
+            // 使用索引 Map 直接查询，O(1) 复杂度
+            const posTrack = positionTrackMap.get(i);
+            if (posTrack?.positionOffset) {
+                startPos[0] += posTrack.positionOffset[0] as number;
+                startPos[1] += posTrack.positionOffset[1] as number;
+            }
+
+            const tempPos = [startPos[0], startPos[1]];
             positions.push(tempPos);
-            if (typeof currentTile !== 'undefined') {
-                currentTile.position = tempPos;;
+
+            if (currentTile) {
+                currentTile.position = tempPos;
                 currentTile.extraProps!.angle1 = angle1;
                 currentTile.extraProps!.angle2 = angle2 - 180;
-                currentTile.extraProps!.cangle = i === floats.length ? floats[i - 1] + 180 : floats[i];
+                currentTile.extraProps!.cangle = isLastTile ? floats[i - 1] + 180 : floats[i];
             }
-            startPos[0] += Math.cos(angle1 * Math.PI / 180);
-            startPos[1] += Math.sin(angle1 * Math.PI / 180);
+
+            // 更新位置
+            const rad = angle1 * Math.PI / 180;
+            startPos[0] += Math.cos(rad);
+            startPos[1] += Math.sin(rad);
+
+            // 触发进度事件（降低频率）
+            if (i % progressInterval === 0 || isLastTile) {
+                this._emitProgress('tilePosition', i, totalTiles, {
+                    tileIndex: i,
+                    tile: currentTile,
+                    position: tempPos,
+                    angle: angle1
+                });
+            }
         }
+
+        // 触发完成事件
+        this._emitProgress('tilePosition', totalTiles, totalTiles, {
+            processed: positions.flat()
+        });
 
         return positions;
     }

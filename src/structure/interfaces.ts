@@ -36,3 +36,27 @@ export interface Tile {
 export interface ParseProvider {
     parse(t: string): LevelOptions;
 }
+
+export interface ParseProgressEvent {
+    stage: 'start' | 'pathData' | 'angleData' | 'relativeAngle' | 'tilePosition' | 'complete';
+    current: number;
+    total: number;
+    percent: number;
+    /** 当前阶段产生的数据 */
+    data?: {
+        /** pathData 阶段: 原始 pathData 字符串; angleData 阶段: 解析后的角度数组 */
+        source?: string | number[];
+        /** 已处理的部分数据 */
+        processed?: number[];
+        /** 当前处理的 tile 数据 */
+        tile?: Tile;
+        /** 当前处理的 tile 索引 */
+        tileIndex?: number;
+        /** angleData: 当前角度值 */
+        angle?: number;
+        /** relativeAngle: 计算出的相对角度 */
+        relativeAngle?: number;
+        /** tilePosition: 当前坐标 */
+        position?: number[];
+    };
+}
