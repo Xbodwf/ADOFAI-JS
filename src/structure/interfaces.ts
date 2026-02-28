@@ -60,3 +60,43 @@ export interface ParseProgressEvent {
         position?: number[];
     };
 }
+
+export interface PrecomputedProgressEvents {
+    start: ParseProgressEvent[];
+    pathData: ParseProgressEvent[];
+    angleData: ParseProgressEvent[];
+    relativeAngle: ParseProgressEvent[];
+    tilePosition: ParseProgressEvent[];
+    complete: ParseProgressEvent[];
+}
+
+/**
+ * 轻量级渲染数据 - 只包含渲染必需的数据，不包含完整的 tile 对象
+ * 用于大物量谱面，避免内存爆炸
+ */
+export interface LightweightRenderData {
+    /** 索引 */
+    index: number;
+    /** 相对角度（渲染用） */
+    angle: number;
+    /** 坐标 [x, y] */
+    position: [number, number];
+    /** 是否有 Twirl */
+    hasTwirl: boolean;
+}
+
+/**
+ * 轻量级预计算结果 - 用于渲染器逐帧渲染
+ */
+export interface LightweightPrecomputedData {
+    /** 总 tile 数量 */
+    totalTiles: number;
+    /** 相对角度数组（索引对应 tile 索引） */
+    angles: number[];
+    /** 坐标数组（索引对应 tile 索引） */
+    positions: [number, number][];
+    /** 是否有 Twirl 的标记数组 */
+    twirlFlags: boolean[];
+    /** 是否已完成预计算 */
+    computed: boolean;
+}

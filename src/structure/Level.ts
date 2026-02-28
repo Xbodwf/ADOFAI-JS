@@ -1,4 +1,4 @@
-import { AdofaiEvent, LevelOptions, EventCallback, GuidCallback, Tile, ParseProvider, ParseProgressEvent } from './interfaces';
+import { AdofaiEvent, LevelOptions, EventCallback, GuidCallback, Tile, ParseProvider, ParseProgressEvent, PrecomputedProgressEvents, LightweightPrecomputedData } from './interfaces';
 import pathData from '../pathdata';
 import exportAsADOFAI from './format'
 import BaseParser from '../parser';
@@ -19,6 +19,12 @@ export class Level {
     public tiles!: Tile[];
     private _angleDir!: number;
     private _twirlCount!: number;
+    /** 预计算的事件缓存 */
+    private _precomputedEvents: PrecomputedProgressEvents | null = null;
+    /** 是否启用预计算模式 */
+    private _precomputeMode: boolean = false;
+    /** 轻量级预计算数据（用于大物量渲染） */
+    private _lightweightData: LightweightPrecomputedData | null = null;
 
     constructor(opt: string | LevelOptions, provider?: ParseProvider) {
         this._events = new Map();
@@ -48,8 +54,209 @@ export class Level {
             percent: total > 0 ? Math.round((current / total) * 100) : 0,
             data
         };
-        this.trigger('parse:progress', progressEvent);
-        this.trigger(`parse:${stage}`, progressEvent);
+
+        // 如果是预计算模式，存储事件而不是触发
+        if (this._precomputeMode && this._precomputedEvents) {
+            this._precomputedEvents[stage].push(progressEvent);
+        } else {
+            this.trigger('parse:progress', progressEvent);
+            this.trigger(`parse:${stage}`, progressEvent);
+        }
+    }
+
+    /**
+     * 启用预计算模式 - 在 load() 和 calculateTilePosition() 过程中不触发事件，
+     * 而是将所有事件缓存起来，之后可以通过 getPrecomputedEvents() 获取
+     */
+    public enablePrecomputeMode(): void {
+        this._precomputeMode = true;
+        this._precomputedEvents = {
+            start: [],
+            pathData: [],
+            angleData: [],
+            relativeAngle: [],
+            tilePosition: [],
+            complete: []
+        };
+    }
+
+    /**
+     * 禁用预计算模式
+     */
+    public disablePrecomputeMode(): void {
+        this._precomputeMode = false;
+    }
+
+    /**
+     * 获取预计算的事件缓存
+     * 返回所有缓存的进度事件，可以用于渲染器按帧播放
+     */
+    public getPrecomputedEvents(): PrecomputedProgressEvents | null {
+        return this._precomputedEvents;
+    }
+
+    /**
+     * 清除预计算的事件缓存
+     */
+    public clearPrecomputedEvents(): void {
+        this._precomputedEvents = null;
+    }
+
+    /**
+     * 按进度百分比获取事件（用于渲染器按帧渲染）
+     * @param percent 0-100 的百分比
+     * @param stage 可选，指定阶段
+     */
+    public getEventsAtPercent(percent: number, stage?: ParseProgressEvent['stage']): ParseProgressEvent[] {
+        if (!this._precomputedEvents) return [];
+
+        const result: ParseProgressEvent[] = [];
+        const stages = stage ? [stage] : (['start', 'pathData', 'angleData', 'relativeAngle', 'tilePosition', 'complete'] as const);
+
+        for (const s of stages) {
+            const events = this._precomputedEvents[s];
+            for (const event of events) {
+                if (event.percent <= percent) {
+                    // 获取不超过目标百分比的最后一个事件
+                    if (result.length === 0 || result[result.length - 1].percent <= event.percent) {
+                        // 避免重复添加相同百分比的事件
+                        const lastEvent = result[result.length - 1];
+                        if (!lastEvent || lastEvent.stage !== event.stage || lastEvent.current !== event.current) {
+                            result.push(event);
+                        }
+                    }
+                }
+            }
+        }
+
+        return result;
+    }
+
+    /**
+     * 获取指定阶段的总事件数
+     */
+    public getPrecomputedEventCount(stage?: ParseProgressEvent['stage']): number {
+        if (!this._precomputedEvents) return 0;
+
+        if (stage) {
+            return this._precomputedEvents[stage].length;
+        }
+
+        return Object.values(this._precomputedEvents).reduce((sum, arr) => sum + arr.length, 0);
+    }
+
+    // ==================== 轻量级预计算 API（用于大物量渲染） ====================
+
+    /**
+     * 获取轻量级预计算数据
+     * 只包含渲染必需的数据：angles, positions, twirlFlags
+     * 内存占用极低，适合大物量谱面
+     */
+    public getLightweightData(): LightweightPrecomputedData | null {
+        return this._lightweightData;
+    }
+
+    /**
+     * 轻量级预计算 - 只计算渲染必需的数据
+     * 不存储完整的 tile 对象，极大减少内存占用
+     * 
+     * @param skipPositionCalculation 是否跳过坐标计算（如果只需要角度数据）
+     */
+    public precomputeLightweight(skipPositionCalculation: boolean = false): LightweightPrecomputedData {
+        const totalTiles = this.tiles.length;
+        
+        // 预分配数组
+        const angles = new Array<number>(totalTiles);
+        const positions: [number, number][] = skipPositionCalculation ? [] : new Array<[number, number]>(totalTiles);
+        const twirlFlags = new Array<boolean>(totalTiles);
+
+        // 提取角度和 twirl 标记
+        for (let i = 0; i < totalTiles; i++) {
+            const tile = this.tiles[i];
+            angles[i] = tile.angle ?? 0;
+            twirlFlags[i] = (tile.twirl ?? 0) % 2 === 1;
+        }
+
+        // 计算坐标（如果需要）
+        if (!skipPositionCalculation) {
+            const startPos = [0, 0];
+            const angleData = this.angleData;
+            
+            // 预构建 PositionTrack 索引
+            const positionTrackMap = new Map<number, AdofaiEvent>();
+            for (const action of this.actions) {
+                if (action.eventType === 'PositionTrack' && action.positionOffset) {
+                    if (action.editorOnly !== true && action.editorOnly !== 'Enabled') {
+                        positionTrackMap.set(action.floor, action);
+                    }
+                }
+            }
+
+            for (let i = 0; i < totalTiles; i++) {
+                // 处理 PositionTrack
+                const posTrack = positionTrackMap.get(i);
+                if (posTrack?.positionOffset) {
+                    startPos[0] += posTrack.positionOffset[0] as number;
+                    startPos[1] += posTrack.positionOffset[1] as number;
+                }
+
+                positions[i] = [startPos[0], startPos[1]];
+
+                // 计算下一个位置
+                const angle = angleData[i] === 999 ? (angleData[i - 1] ?? 0) + 180 : angleData[i];
+                const rad = angle * Math.PI / 180;
+                startPos[0] += Math.cos(rad);
+                startPos[1] += Math.sin(rad);
+            }
+        }
+
+        this._lightweightData = {
+            totalTiles,
+            angles,
+            positions,
+            twirlFlags,
+            computed: true
+        };
+
+        return this._lightweightData;
+    }
+
+    /**
+     * 获取指定范围内的轻量级渲染数据（分片获取，避免一次性加载全部）
+     * @param startIndex 起始索引
+     * @param count 数量
+     */
+    public getLightweightDataRange(startIndex: number, count: number): { angles: number[], positions: [number, number][], twirlFlags: boolean[] } | null {
+        if (!this._lightweightData) return null;
+
+        const end = Math.min(startIndex + count, this._lightweightData.totalTiles);
+        
+        return {
+            angles: this._lightweightData.angles.slice(startIndex, end),
+            positions: this._lightweightData.positions.slice(startIndex, end),
+            twirlFlags: this._lightweightData.twirlFlags.slice(startIndex, end)
+        };
+    }
+
+    /**
+     * 清除轻量级预计算数据
+     */
+    public clearLightweightData(): void {
+        this._lightweightData = null;
+    }
+
+    /**
+     * 获取单个 tile 的渲染数据（按需获取，不预加载全部）
+     */
+    public getTileRenderData(index: number): { angle: number, position: [number, number] | null, hasTwirl: boolean } | null {
+        if (index < 0 || index >= this.tiles.length) return null;
+
+        const tile = this.tiles[index];
+        return {
+            angle: tile.angle ?? 0,
+            position: tile.position ? [tile.position[0], tile.position[1]] as [number, number] : null,
+            hasTwirl: (tile.twirl ?? 0) % 2 === 1
+        };
     }
 
     load(): Promise<boolean> {
@@ -179,13 +386,14 @@ export class Level {
         const batchSize = Math.max(1, Math.floor(xLength / 100)); // 每批处理的数量，至少1个
 
         for (let i = 0; i < xLength; i++) {
-            // 计算相对角度（会更新 _twirlCount）
+            // 注意顺序：先 _filterByFloor 更新 _twirlCount，再 _parseAngle 计算角度
+            const actions = this._filterByFloor(opt.actions, i);
             const angle = this._parseAngle(opt.angleData, i, this._twirlCount % 2);
 
             const tile: Tile = {
                 direction: opt.angleData[i],
                 _lastdir: opt.angleData[i - 1] || 0,
-                actions: this._filterByFloor(opt.actions, i),
+                actions: actions,
                 angle: angle,
                 addDecorations: this._filterByFloorwithDeco(opt.decorations, i),
                 twirl: this._twirlCount,
@@ -196,9 +404,9 @@ export class Level {
 
             // 每处理一批或最后一个时触发进度事件
             if (i % batchSize === 0 || i === xLength - 1) {
+                // 轻量级事件数据 - 不存储完整 tile 对象，只存储渲染必需数据
                 this._emitProgress('relativeAngle', i + 1, xLength, {
                     tileIndex: i,
-                    tile: tile,
                     angle: opt.angleData[i],
                     relativeAngle: angle
                 });
@@ -386,12 +594,11 @@ export class Level {
             startPos[0] += Math.cos(rad);
             startPos[1] += Math.sin(rad);
 
-            // 触发进度事件（降低频率）
+            // 触发进度事件（降低频率，轻量级数据）
             if (i % progressInterval === 0 || isLastTile) {
                 this._emitProgress('tilePosition', i, totalTiles, {
                     tileIndex: i,
-                    tile: currentTile,
-                    position: tempPos,
+                    position: [tempPos[0], tempPos[1]],
                     angle: angle1
                 });
             }
