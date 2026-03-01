@@ -309,7 +309,7 @@ export class Level {
             }
 
             // 阶段3: 提取其他数据
-            if (options && typeof options === 'object' && options !== null && typeof options.actions !== 'undefined') {
+            if (options && typeof options === 'object' && options !== null && Array.isArray(options.actions)) {
                 this.actions = options['actions']!;
             } else {
                 this.actions = [];
@@ -320,7 +320,7 @@ export class Level {
                 reject("There is no ADOFAI settings.");
                 return;
             }
-            if (options && typeof options === 'object' && options !== null && typeof options.decorations !== 'undefined') {
+            if (options && typeof options === 'object' && options !== null && Array.isArray(options.decorations)) {
                 this.__decorations = options['decorations']!;
             } else {
                 this.__decorations = [];
@@ -382,35 +382,68 @@ export class Level {
     }
 
     private async _createArray(xLength: number, opt: { angleData: number[], actions: AdofaiEvent[], decorations: AdofaiEvent[] }): Promise<Tile[]> {
-        const tiles: Tile[] = [];
-        const batchSize = Math.max(1, Math.floor(xLength / 100)); // 每批处理的数量，至少1个
+        const tiles: Tile[] = new Array(xLength);
+        const batchSize = Math.max(100, Math.floor(xLength / 100)); // 每批处理的数量，提高最小批量
+
+        // 性能优化：预先按 floor 分组 actions 和 decorations
+        const actionsByFloor = new Map<number, AdofaiEvent[]>();
+        if (Array.isArray(opt.actions)) {
+            for (const action of opt.actions) {
+                if (!actionsByFloor.has(action.floor)) {
+                    actionsByFloor.set(action.floor, []);
+                }
+                actionsByFloor.get(action.floor)!.push(action);
+            }
+        }
+
+        const decorationsByFloor = new Map<number, AdofaiEvent[]>();
+        if (Array.isArray(opt.decorations)) {
+            for (const deco of opt.decorations) {
+                if (!decorationsByFloor.has(deco.floor)) {
+                    decorationsByFloor.set(deco.floor, []);
+                }
+                decorationsByFloor.get(deco.floor)!.push(deco);
+            }
+        }
 
         for (let i = 0; i < xLength; i++) {
-            // 注意顺序：先 _filterByFloor 更新 _twirlCount，再 _parseAngle 计算角度
-            const actions = this._filterByFloor(opt.actions, i);
+            // 从 Map 中直接获取当前 floor 的 actions
+            const floorActions = actionsByFloor.get(i) || [];
+            const floorDecos = decorationsByFloor.get(i) || [];
+
+            // 更新 _twirlCount
+            for (const action of floorActions) {
+                if (action.eventType === 'Twirl') {
+                    this._twirlCount++;
+                }
+            }
+
+            // 计算相对角度
             const angle = this._parseAngle(opt.angleData, i, this._twirlCount % 2);
 
-            const tile: Tile = {
+            // 移除 floor 属性并创建 tile
+            const tileActions = floorActions.map(({ floor, ...rest }) => rest);
+            const tileDecos = floorDecos.map(({ floor, ...rest }) => rest);
+
+            tiles[i] = {
                 direction: opt.angleData[i],
                 _lastdir: opt.angleData[i - 1] || 0,
-                actions: actions,
+                actions: tileActions,
                 angle: angle,
-                addDecorations: this._filterByFloorwithDeco(opt.decorations, i),
+                addDecorations: tileDecos,
                 twirl: this._twirlCount,
                 extraProps: {}
             };
 
-            tiles.push(tile);
-
-            // 每处理一批或最后一个时触发进度事件
+            // 降低进度汇报和让出循环的频率
             if (i % batchSize === 0 || i === xLength - 1) {
-                // 轻量级事件数据 - 不存储完整 tile 对象，只存储渲染必需数据
                 this._emitProgress('relativeAngle', i + 1, xLength, {
                     tileIndex: i,
                     angle: opt.angleData[i],
                     relativeAngle: angle
                 });
-                // 让出事件循环，避免阻塞
+                
+                // 每 10% 让出一次，或者对于超大谱面增加频率
                 if (i % (batchSize * 10) === 0) {
                     await new Promise(r => setTimeout(r, 0));
                 }
@@ -459,6 +492,7 @@ export class Level {
 
 
     private _filterByFloor(arr: AdofaiEvent[], i: number): AdofaiEvent[] {
+        if (!Array.isArray(arr)) return [];
         let actionT = arr.filter(item => item.floor === i);
         this._twirlCount += actionT.filter(t => t.eventType === 'Twirl').length;
         return actionT.map(({ floor, ...rest }) => rest);
@@ -469,17 +503,18 @@ export class Level {
     }
     private _flattenActionsWithFloor(arr: Tile[]): AdofaiEvent[] {
         return arr.flatMap((tile, index) =>
-            (tile?.actions || []).map(({ floor, ...rest }) => ({ floor: index, ...rest } as AdofaiEvent))
+            (Array.isArray(tile?.actions) ? tile.actions : []).map(({ floor, ...rest }) => ({ floor: index, ...rest } as AdofaiEvent))
         );
     }
     private _filterByFloorwithDeco(arr: AdofaiEvent[], i: number): AdofaiEvent[] {
+        if (!Array.isArray(arr)) return [];
         let actionT = arr.filter(item => item.floor === i);
         return actionT.map(({ floor, ...rest }) => rest);
     }
 
     private _flattenDecorationsWithFloor(arr: Tile[]): AdofaiEvent[] {
         return arr.flatMap((tile, index) =>
-            (tile?.addDecorations || []).map(({ floor, ...rest }) => ({ floor: index, ...rest } as AdofaiEvent))
+            (Array.isArray(tile?.addDecorations) ? tile.addDecorations : []).map(({ floor, ...rest }) => ({ floor: index, ...rest } as AdofaiEvent))
         );
     }
     private _parseAngle(agd: number[], i: number, isTwirl: number): number {
@@ -509,7 +544,7 @@ export class Level {
     public filterActionsByEventType(en: string): { index: number, action: AdofaiEvent }[] {
         return Object.entries(this.tiles)
             .flatMap(([index, a]) =>
-                (a.actions || []).map(b => ({ b, index }))
+                (Array.isArray(a.actions) ? a.actions : []).map(b => ({ b, index }))
             )
             .filter(({ b }) => b.eventType === en)
             .map(({ b, index }) => ({
