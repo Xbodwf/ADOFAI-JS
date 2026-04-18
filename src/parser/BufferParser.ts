@@ -1,176 +1,22 @@
 import Parser from "./Parser";
-import StringParser from "./StringParser";
-
-let BOM: Buffer;
-let COMMA: Buffer;
-let BufferAvailable = true;
-
-try {
-  BOM = Buffer.of(0xef, 0xbb, 0xbf);
-  COMMA = Buffer.from(",");
-} catch (e) {
-  BufferAvailable = false;
-  console.warn('Buffer is not available in current environment, try to use ArrayBufferParser');
-  // minimal shims to keep types happy; won't be used when BufferUnavailable
-  BOM = { equals: () => false, subarray: () => null } as any;
-  COMMA = { equals: () => false, subarray: () => null } as any;
-}
 
 /**
- * Inspect buffer to detect an unescaped raw newline inside a quoted string.
- * If found, we must fallback to the more tolerant StringParser.
+ * 字节流原生 JSON 解析器
+ * 直接在 Uint8Array 上运行状态机，支持非标换行，且无需预转字符串。
  */
-function hasRawNewlineInStringBuffer(buf: Uint8Array): boolean {
-  let last: "other" | "string" | "escape" | "comma" = "other";
-  for (let i = 0; i < buf.length; i++) {
-    const c = buf[i];
-    if (last === "escape") {
-      last = "string";
-      continue;
-    }
-    switch (c) {
-      case 34: // "
-        if (last === "string") {
-          last = "other";
-        } else {
-          if (last === "comma") {
-            // entering string after comma
-          }
-          last = "string";
-        }
-        break;
-      case 92: // \
-        if (last === "string") last = "escape";
-        break;
-      case 44: // ,
-        if (last === "other") last = "comma";
-        break;
-      case 93: // ]
-      case 125: // }
-        if (last === "comma") last = "other";
-        break;
-      // whitespace bytes
-      case 9:
-      case 10:
-      case 11:
-      case 12:
-      case 13:
-      case 32:
-        // If we see newline (10) or carriage (13) while inside a string AND not escaped,
-        // that's a raw newline in string -> not valid strict JSON; detect and return true.
-        if ((c === 10 || c === 13) && last === "string") {
-          return true;
-        }
-        break;
-      default:
-        if (last === "comma") {
-          last = "other";
-        }
-        break;
-    }
-  }
-  return false;
-}
-
-/**
- * Normalize buffer by removing insignificant whitespace outside strings.
- * Works on Uint8Array and returns Buffer (for node) or Uint8Array (for arraybuffer flow).
- * This function keeps contents inside strings untouched.
- */
-function normalizeJsonUint8(buf: Uint8Array): Uint8Array {
-  const builder: Uint8Array[] = [];
-  let last: "other" | "string" | "escape" | "comma" = "other";
-  let from = 0;
-  for (let i = 0; i < buf.length; i++) {
-    const charCode = buf[i];
-    if (last === "escape") {
-      last = "string";
-      continue;
-    } else {
-      switch (charCode) {
-        case 34: // "
-          switch (last) {
-            case "string":
-              last = "other";
-              break;
-            case "comma":
-              // when we hit a quote after a comma we keep the comma boundary
-              builder.push(COMMA ? (COMMA as any) : new Uint8Array([44]) as any);
-            default:
-              last = "string";
-              break;
-          }
-          break;
-        case 92: // \
-          if (last === "string") last = "escape";
-          break;
-        case 44: // ,
-          builder.push(buf.subarray(from, i));
-          from = i + 1;
-          if (last === "other") last = "comma";
-          break;
-        case 93:
-        case 125:
-          if (last === "comma") last = "other";
-          break;
-        case 9:
-        case 10:
-        case 11:
-        case 12:
-        case 13:
-        case 32:
-          // ignore whitespace outside strings
-          break;
-        default:
-          if (last === "comma") {
-            builder.push(COMMA ? (COMMA as any) : new Uint8Array([44]) as any);
-            last = "other";
-          }
-          break;
-      }
-    }
-  }
-  builder.push(buf.subarray(from));
-  // concat
-  let total = 0;
-  for (const piece of builder) total += piece.length;
-  const out = new Uint8Array(total);
-  let offset = 0;
-  for (const piece of builder) {
-    out.set(piece, offset);
-    offset += piece.length;
-  }
-  return out;
-}
-
-export class BufferParser extends Parser<Buffer | string, any> {
-  parse(input: Buffer | string): any {
-    // string input: delegate to StringParser (keeps current behavior)
+export class BufferParser extends Parser<Uint8Array | Buffer | string, any> {
+  parse(input: Uint8Array | Buffer | string): any {
+    let u8: Uint8Array;
+    
     if (typeof input === "string") {
-      return StringParser.prototype.parse.call(StringParser.prototype, input);
+      // 如果输入是字符串，转为字节流处理以保持逻辑统一
+      u8 = new TextEncoder().encode(input);
+    } else {
+      u8 = stripBOM(input);
     }
 
-    // Node Buffer path
-    const nodeBuf = input as Buffer;
-    // strip BOM quickly
-    const stripped = stripBOM(nodeBuf);
-    const u8 = new Uint8Array(stripped);
-
-    // If there is any raw newline inside a quoted string, fallback to StringParser
-    if (hasRawNewlineInStringBuffer(u8)) {
-      // decode exactly and let StringParser tolerant-parse it
-      return StringParser.prototype.parse.call(StringParser.prototype, decodeStringFromUTF8BOM(stripped));
-    }
-
-    // Fast path: normalize then try JSON.parse (much faster than StringParser).
-    try {
-      const normalized = normalizeJsonUint8(u8);
-      const text = decodeStringFromUTF8BOM(Buffer.from(normalized));
-      return JSON.parse(text);
-    } catch (e) {
-      // Fallback to StringParser if anything unexpected occurs
-      return StringParser.prototype.parse.call(StringParser.prototype, decodeStringFromUTF8BOM(stripped));
-    }
+    const engine = new BufferParserEngine(u8);
+    return engine.parseValue();
   }
 
   stringify(obj: any): string {
@@ -178,21 +24,186 @@ export class BufferParser extends Parser<Buffer | string, any> {
   }
 }
 
-export function stripBOM(buffer: Buffer): Buffer {
-  if (buffer.length >= 3 && BOM.equals(buffer.subarray(0, 3))) {
-    return buffer.subarray(3)
+class BufferParserEngine {
+  private pos = 0;
+  private length: number;
+  private decoder = new TextDecoder("utf-8");
+
+  constructor(private data: Uint8Array) {
+    this.length = data.length;
   }
-  return buffer
+
+  parseValue(): any {
+    this.eatWhitespace();
+    const byte = this.peek();
+    if (byte === -1) return null;
+
+    switch (byte) {
+      case 123: return this.parseObject(); // {
+      case 91:  return this.parseArray();  // [
+      case 34:  return this.parseString(); // "
+      case 116: return this.parseKeyword(true);  // t(rue)
+      case 102: return this.parseKeyword(false); // f(alse)
+      case 110: return this.parseKeyword(null);  // n(ull)
+      case 45:  // -
+      case 48: case 49: case 50: case 51: case 52:
+      case 53: case 54: case 55: case 56: case 57:
+        return this.parseNumber();
+      default:
+        this.pos++;
+        return null;
+    }
+  }
+
+  private parseObject(): Record<string, any> {
+    const obj: Record<string, any> = {};
+    this.pos++; // skip {
+    
+    while (true) {
+      this.eatWhitespace();
+      if (this.peek() === 125) { // }
+        this.pos++;
+        break;
+      }
+
+      const key = this.parseString();
+      this.eatWhitespace();
+      if (this.peek() !== 58) break; // :
+      this.pos++; 
+
+      obj[key] = this.parseValue();
+
+      this.eatWhitespace();
+      if (this.peek() === 44) { // ,
+        this.pos++;
+      }
+    }
+    return obj;
+  }
+
+  private parseArray(): any[] {
+    const arr: any[] = [];
+    this.pos++; // skip [
+    
+    while (true) {
+      this.eatWhitespace();
+      if (this.peek() === 93) { // ]
+        this.pos++;
+        break;
+      }
+
+      arr.push(this.parseValue());
+
+      this.eatWhitespace();
+      if (this.peek() === 44) { // ,
+        this.pos++;
+      }
+    }
+    return arr;
+  }
+
+  /**
+   * 核心修改：支持字符串内原始换行 (10, 13)
+   */
+  private parseString(): string {
+    this.pos++; // skip "
+    const start = this.pos;
+    let hasEscapes = false;
+
+    while (this.pos < this.length) {
+      const b = this.data[this.pos];
+      if (b === 34) break; // "
+      if (b === 92) { // \
+        hasEscapes = true;
+        this.pos += 2; // 简单跳过转义序列
+      } else {
+        this.pos++;
+      }
+    }
+
+    const end = this.pos;
+    this.pos++; // skip closing "
+
+    const raw = this.data.subarray(start, end);
+    if (!hasEscapes) {
+      return this.decoder.decode(raw);
+    } else {
+      // 处理转义字符逻辑
+      return this.processEscapes(raw);
+    }
+  }
+
+  private processEscapes(raw: Uint8Array): string {
+    // 降级处理带有转义的字符串：转成文本后用类似 StringParser 的逻辑处理
+    const str = this.decoder.decode(raw);
+    let result = "";
+    for (let i = 0; i < str.length; i++) {
+      if (str[i] === "\\" && i + 1 < str.length) {
+        const next = str[++i];
+        switch (next) {
+          case '"': case '\\': case '/': result += next; break;
+          case 'b': result += '\b'; break;
+          case 'f': result += '\f'; break;
+          case 'n': result += '\n'; break;
+          case 'r': result += '\r'; break;
+          case 't': result += '\t'; break;
+          case 'u': 
+            result += String.fromCharCode(parseInt(str.substr(i + 1, 4), 16));
+            i += 4;
+            break;
+        }
+      } else {
+        result += str[i];
+      }
+    }
+    return result;
+  }
+
+  private parseNumber(): number {
+    const start = this.pos;
+    while (this.pos < this.length) {
+      const b = this.data[this.pos];
+      // 0-9 . e E + -
+      if ((b >= 48 && b <= 57) || b === 46 || b === 101 || b === 69 || b === 43 || b === 45) {
+        this.pos++;
+      } else {
+        break;
+      }
+    }
+    const s = this.decoder.decode(this.data.subarray(start, this.pos));
+    return parseFloat(s);
+  }
+
+  private parseKeyword(value: any): any {
+    // 简单地跳过 true, false, null 的长度
+    const b = this.data[this.pos];
+    if (b === 116) this.pos += 4; // true
+    else if (b === 102) this.pos += 5; // false
+    else if (b === 110) this.pos += 4; // null
+    return value;
+  }
+
+  private eatWhitespace(): void {
+    while (this.pos < this.length) {
+      const b = this.data[this.pos];
+      if (b === 32 || b === 10 || b === 13 || b === 9) {
+        this.pos++;
+      } else {
+        break;
+      }
+    }
+  }
+
+  private peek(): number {
+    return this.pos < this.length ? this.data[this.pos] : -1;
+  }
 }
 
-export function normalizeJsonBuffer(text: Buffer): Buffer {
-  // keep backward compatibility: use the Uint8 normalizer and return a Buffer
-  const u8 = normalizeJsonUint8(new Uint8Array(text));
-  return Buffer.from(u8);
-}
-
-export function decodeStringFromUTF8BOM(buffer: Buffer): string {
-  return stripBOM(buffer).toString("utf-8")
+export function stripBOM(buffer: Uint8Array | Buffer): Uint8Array {
+  if (buffer.length >= 3 && buffer[0] === 0xef && buffer[1] === 0xbb && buffer[2] === 0xbf) {
+    return buffer.subarray(3);
+  }
+  return buffer;
 }
 
 export default BufferParser;

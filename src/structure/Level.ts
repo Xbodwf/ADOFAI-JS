@@ -145,7 +145,6 @@ export class Level {
         return Object.values(this._precomputedEvents).reduce((sum, arr) => sum + arr.length, 0);
     }
 
-    // ==================== 轻量级预计算 API（用于大物量渲染） ====================
 
     /**
      * 获取轻量级预计算数据
@@ -164,7 +163,7 @@ export class Level {
      */
     public precomputeLightweight(skipPositionCalculation: boolean = false): LightweightPrecomputedData {
         const totalTiles = this.tiles.length;
-        
+
         // 预分配数组
         const angles = new Array<number>(totalTiles);
         const positions: [number, number][] = skipPositionCalculation ? [] : new Array<[number, number]>(totalTiles);
@@ -181,7 +180,7 @@ export class Level {
         if (!skipPositionCalculation) {
             const startPos = [0, 0];
             const angleData = this.angleData;
-            
+
             // 预构建 PositionTrack 索引
             const positionTrackMap = new Map<number, AdofaiEvent>();
             for (const action of this.actions) {
@@ -230,7 +229,7 @@ export class Level {
         if (!this._lightweightData) return null;
 
         const end = Math.min(startIndex + count, this._lightweightData.totalTiles);
-        
+
         return {
             angles: this._lightweightData.angles.slice(startIndex, end),
             positions: this._lightweightData.positions.slice(startIndex, end),
@@ -264,25 +263,31 @@ export class Level {
             let opt = this._options;
             let options: LevelOptions;
 
-            // 阶段1: 解析输入
             this._emitProgress('start', 0, 0);
 
-            switch (typeof opt) {
-                case 'string':
-                    try {
-                        options = BaseParser.parseAsObject(opt, this._provider) as LevelOptions;
-                    } catch (e) {
-                        reject(e);
-                        return;
-                    }
-                    break;
-                case 'object':
-                    options = Object.assign({}, opt) as LevelOptions;
-                    break;
-                default:
-                    reject("Options must be String or Object");
-                    return;
-            }
+            const isArrayBuffer = opt instanceof ArrayBuffer;
+			const isUint8Array = opt instanceof Uint8Array;
+			const isBuffer = typeof Buffer !== 'undefined' && Buffer.isBuffer(opt);
+
+            if (typeof opt === 'string' || isArrayBuffer || isUint8Array || isBuffer) {
+				try {
+					let input = isArrayBuffer ? new Uint8Array(opt as ArrayBuffer) : opt;
+                
+					// 确保此时 input 是 string, Uint8Array 或 Buffer
+					options = this._provider?.parse(input as any) as LevelOptions;
+				} 
+				catch (e) {
+					reject("解析失败: " + e);
+					return;
+				}
+			} 
+			else if (typeof opt === 'object' && opt !== null) {
+				options = Object.assign({}, opt) as LevelOptions;
+			} 
+			else {
+				reject("Options must be String, Buffer, ArrayBuffer or Object");
+				return;
+			}
 
             // 阶段2: 处理 pathData 或 angleData
             const hasPathData = options && typeof options === 'object' && options !== null && typeof options.pathData !== 'undefined';
@@ -442,7 +447,7 @@ export class Level {
                     angle: opt.angleData[i],
                     relativeAngle: angle
                 });
-                
+
                 // 每 10% 让出一次，或者对于超大谱面增加频率
                 if (i % (batchSize * 10) === 0) {
                     await new Promise(r => setTimeout(r, 0));
