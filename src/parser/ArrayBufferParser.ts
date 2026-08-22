@@ -1,16 +1,25 @@
 import Parser from "./Parser";
-import StringParser from "./StringParser";
+import { BufferParser } from "./BufferParser";
 
-const BOM = new Uint8Array([0xef, 0xbb, 0xbf]);
+const BOM = new Uint8Array([0xef, 0xbb, 0xbf]); // kept for backward compatibility
 const COMMA = new Uint8Array([44]); // ASCII for ','
 
+/**
+ * ArrayBuffer 高性能解析器
+ * 直接在字节流上运行解析状态机：
+ * - BOM 剥离使用 subarray 视图（零拷贝）
+ * - 无需整体解码为字符串，也无需预规范化整个缓冲区
+ */
 export class ArrayBufferParser extends Parser<ArrayBuffer | string, any> {
+  private byteParser = new BufferParser();
+
   parse(input: ArrayBuffer | string): any {
     if (typeof input === "string") {
-      return StringParser.prototype.parse.call(StringParser.prototype, input);
-    } else {
-      return StringParser.prototype.parse.call(StringParser.prototype, decodeStringFromUTF8BOM(normalizeJsonArrayBuffer(stripBOM(input))));
+      return this.byteParser.parse(input);
     }
+    // ArrayBuffer 需要先建立字节视图；Uint8Array 直接透传
+    const u8 = input instanceof Uint8Array ? input : new Uint8Array(input);
+    return this.byteParser.parse(u8);
   }
   stringify(obj: any): string {
     return JSON.stringify(obj);

@@ -100,20 +100,26 @@ export function parseChangedAngle(
 }
 
 export function filterActionsByEventType(tiles: Tile[], eventType: string): { index: number; action: ActionData }[] {
-  return tiles
-    .flatMap((tile, idx) =>
-      (Array.isArray(tile.actions) ? tile.actions : []).map(a => ({ a, idx }))
-    )
-    .filter(({ a }) => a.eventType === eventType)
-    .map(({ a, idx }) => ({ index: idx, action: a }));
+  const out: { index: number; action: ActionData }[] = [];
+  for (let i = 0; i < tiles.length; i++) {
+    const actions = tiles[i].actions;
+    if (!Array.isArray(actions)) continue;
+    for (let j = 0; j < actions.length; j++) {
+      if (actions[j].eventType === eventType) {
+        out.push({ index: i, action: actions[j] });
+      }
+    }
+  }
+  return out;
 }
 
 export function getActionsByIndex(tiles: Tile[], eventType: string, index: number): { count: number; actions: ActionData[] } {
-  const filtered = filterActionsByEventType(tiles, eventType);
-  const matches = filtered.filter(item => item.index === index);
+  const tile = tiles[index];
+  const floorActions = tile && Array.isArray(tile.actions) ? tile.actions : [];
+  const actions = floorActions.filter(a => a.eventType === eventType);
   return {
-    count: matches.length,
-    actions: matches.map(item => item.action),
+    count: actions.length,
+    actions,
   };
 }
 
@@ -139,6 +145,9 @@ export interface CreateTilesCallbacks {
   getTwirl: () => number;
 }
 
+const EMPTY_ACTIONS: AdofaiEvent[] = [];
+const EMPTY_DECOS: AdofaiEvent[] = [];
+
 export async function createTiles(
   xLength: number,
   opt: CreateTilesOptions,
@@ -154,58 +163,57 @@ export async function createTiles(
     for (const action of opt.actions) {
       // Fallback: 早期谱面可能把装饰事件放在 actions 里，将其归入 decorations
       if (isDecorationEvent(action)) {
-        if (!decorationsByFloor.has(action.floor)) {
-          decorationsByFloor.set(action.floor, []);
-        }
-        decorationsByFloor.get(action.floor)!.push(action);
+        let list = decorationsByFloor.get(action.floor);
+        if (!list) decorationsByFloor.set(action.floor, (list = []));
+        list.push(action);
         continue;
       }
-      if (!actionsByFloor.has(action.floor)) {
-        actionsByFloor.set(action.floor, []);
-      }
-      actionsByFloor.get(action.floor)!.push(action);
+      let list = actionsByFloor.get(action.floor);
+      if (!list) actionsByFloor.set(action.floor, (list = []));
+      list.push(action);
     }
   }
 
   if (Array.isArray(opt.decorations)) {
     for (const deco of opt.decorations) {
-      if (!decorationsByFloor.has(deco.floor)) {
-        decorationsByFloor.set(deco.floor, []);
-      }
-      decorationsByFloor.get(deco.floor)!.push(deco);
+      let list = decorationsByFloor.get(deco.floor);
+      if (!list) decorationsByFloor.set(deco.floor, (list = []));
+      list.push(deco);
     }
   }
 
+  const angleData = opt.angleData;
   const angleDir: AngleState = { value: 180 };
+  let twirl = cbs.getTwirl();
 
   for (let i = 0; i < xLength; i++) {
-    const floorActions = actionsByFloor.get(i) || [];
-    const floorDecos = decorationsByFloor.get(i) || [];
+    const floorActions = actionsByFloor.get(i) || EMPTY_ACTIONS;
+    const floorDecos = decorationsByFloor.get(i) || EMPTY_DECOS;
 
-    for (const action of floorActions) {
-      if (action.eventType === 'Twirl') {
-        cbs.onTwirl(cbs.getTwirl() + 1);
+    for (let j = 0; j < floorActions.length; j++) {
+      if (floorActions[j].eventType === 'Twirl') {
+        cbs.onTwirl(++twirl);
       }
     }
 
-    const angle = parseAngle(opt.angleData, i, angleDir, cbs.getTwirl() % 2);
-    const tileActions = floorActions.map(({ floor, ...rest }) => rest);
-    const tileDecos = floorDecos.map(({ floor, ...rest }) => rest);
+    const angle = parseAngle(angleData, i, angleDir, twirl % 2);
+    const tileActions = floorActions.map(({ floor, ...rest }) => rest as ActionData);
+    const tileDecos = floorDecos.map(({ floor, ...rest }) => rest as ActionData);
 
     tiles[i] = {
-      direction: opt.angleData[i],
-      _lastdir: opt.angleData[i - 1] || 0,
+      direction: angleData[i],
+      _lastdir: (i > 0 ? angleData[i - 1] : 0) || 0,
       actions: tileActions,
       angle: angle,
       addDecorations: tileDecos,
-      twirl: cbs.getTwirl(),
+      twirl: twirl,
       extraProps: {},
     };
 
     if (i % batchSize === 0 || i === xLength - 1) {
       cbs.onProgress('relativeAngle', i + 1, xLength, {
         tileIndex: i,
-        angle: opt.angleData[i],
+        angle: angleData[i],
         relativeAngle: angle,
       });
       if (i % (batchSize * 10) === 0) {
@@ -218,10 +226,11 @@ export async function createTiles(
 
 export function changeAngles(tiles: Tile[]): Tile[] {
   const angleDir: AngleState = { value: 180 };
-  return tiles.map((t, i) => {
+  for (let i = 0; i < tiles.length; i++) {
+    const t = tiles[i];
     t.angle = parseChangedAngle(t.direction!, i + 1, angleDir, t.twirl!, tiles);
-    return t;
-  });
+  }
+  return tiles;
 }
 
 export function flattenAngleDatas(tiles: Tile[]): number[] {

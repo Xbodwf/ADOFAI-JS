@@ -33,6 +33,93 @@ class StringParser extends Parser<string, any> {
     }
 }
 
+const CHAR_BACKSPACE = 8;
+const CHAR_TAB = 9;
+const CHAR_LF = 10;
+const CHAR_FF = 12;
+const CHAR_CR = 13;
+const CHAR_QUOTE = 34;
+const CHAR_COMMA = 44;
+const CHAR_COLON = 58;
+const CHAR_SQUARE_OPEN = 91;
+const CHAR_SQUARE_CLOSE = 93;
+const CHAR_CURLY_OPEN = 123;
+const CHAR_CURLY_CLOSE = 125;
+const CHAR_BACKSLASH = 92;
+const CHAR_SPACE = 32;
+const CHAR_BOM = 0xfeff;
+
+/** charCode → escaped replacement for the characters JSON defines escapes for */
+const ESCAPE_BY_CODE: Record<number, string> = {
+    [CHAR_QUOTE]: '\\"',
+    [CHAR_BACKSLASH]: "\\\\",
+    [47]: "/",
+    [98]: "\\b",
+    [102]: "\\f",
+    [110]: "\\n",
+    [114]: "\\r",
+    [116]: "\\t"
+};
+
+function hexValue(code: number): number {
+    if (code >= 48 && code <= 57) return code - 48;          // 0-9
+    if (code >= 97 && code <= 102) return code - 87;         // a-f
+    if (code >= 65 && code <= 70) return code - 55;          // A-F
+    return -1;
+}
+
+/**
+ * Unescape a raw substring (between quotes) of a JSON document.
+ * Replicates the original per-character semantics:
+ * - known single-char escapes are mapped, unknown escapes are dropped
+ * - \uXXXX uses prefix parsing like Number.parseInt(x, 16); zero valid
+ *   digits yield U+0000 (fromCharCode(NaN))
+ * - a trailing lone backslash at EOF is dropped
+ */
+function unescapeJsonRange(json: string, start: number, end: number): string {
+    let result = "";
+    let chunkStart = start;
+    let i = start;
+
+    while (i < end) {
+        if (json.charCodeAt(i) !== CHAR_BACKSLASH) {
+            i++;
+            continue;
+        }
+
+        // backslash at end of range: unterminated escape (EOF), drop it
+        if (i + 1 >= end) break;
+
+        const escapedCode = json.charCodeAt(i + 1);
+
+        if (escapedCode === 117) { // 'u'
+            if (chunkStart < i) result += json.slice(chunkStart, i);
+            let value = NaN as number;
+            let digits = 0;
+            let j = i + 2;
+            while (j < end && digits < 4) {
+                const d = hexValue(json.charCodeAt(j));
+                if (d === -1) break;
+                value = digits === 0 ? d : value * 16 + d;
+                digits++;
+                j++;
+            }
+            result += String.fromCharCode(value);
+            i = j;
+            chunkStart = i;
+        } else {
+            if (chunkStart < i) result += json.slice(chunkStart, i);
+            const replacement = ESCAPE_BY_CODE[escapedCode];
+            if (replacement !== undefined) result += replacement;
+            i += 2;
+            chunkStart = i;
+        }
+    }
+
+    if (chunkStart < end) result += json.slice(chunkStart, end);
+    return result;
+}
+
 class ParserX {
     static WHITE_SPACE = " \t\n\r\uFEFF";
     static WORD_BREAK = ' \t\n\r{}[],:"';
@@ -57,8 +144,8 @@ class ParserX {
         this.json = jsonString;
         this.position = 0;
         this.endSection = endSection;
-        if (this.peek() === 0xfeff) {
-            this.read();
+        if (this.position < this.json.length && this.json.charCodeAt(0) === CHAR_BOM) {
+            this.position++;
         }
     }
     parseValue(): any {
@@ -136,60 +223,31 @@ class ParserX {
         }
     }
     parseString(): string | null {
-        let result = "";
-        this.read();
-        let parsing = true;
-        while (parsing) {
-            if (this.peek() === -1) {
-                break;
-            }
-            const char = this.nextChar;
-            switch (char) {
-                case '"':
-                    parsing = false;
-                    break;
-                case "\\":
-                    if (this.peek() === -1) {
-                        parsing = false;
-                        break;
-                    }
-                    const escaped = this.nextChar;
-                    switch (escaped) {
-                        case '"':
-                        case "/":
-                        case "\\":
-                            result += escaped;
-                            break;
-                        case "b":
-                            result += "\b";
-                            break;
-                        case "f":
-                            result += "\f";
-                            break;
-                        case "n":
-                            result += "\n";
-                            break;
-                        case "r":
-                            result += "\r";
-                            break;
-                        case "t":
-                            result += "\t";
-                            break;
-                        case "u":
-                            let unicode = "";
-                            for (let i = 0; i < 4; i++) {
-                                unicode += this.nextChar;
-                            }
-                            result += String.fromCharCode(Number.parseInt(unicode, 16));
-                            break;
-                    }
-                    break;
-                default:
-                    result += char;
-                    break;
+        this.read(); // consume opening quote
+        const json = this.json;
+        const len = json.length;
+        const start = this.position;
+        let pos = start;
+        let hasEscape = false;
+
+        while (pos < len) {
+            const c = json.charCodeAt(pos);
+            if (c === CHAR_QUOTE) break;
+            if (c === CHAR_BACKSLASH) {
+                hasEscape = true;
+                pos += 2;
+            } else {
+                pos++;
             }
         }
-        return result;
+
+        const end = pos < len ? pos : len;
+        this.position = Math.min(end + 1, len);
+
+        if (!hasEscape) {
+            return json.slice(start, end);
+        }
+        return unescapeJsonRange(json, start, end);
     }
     parseNumber(): number {
         const word = this.nextWord;
@@ -200,12 +258,21 @@ class ParserX {
         }
     }
     eatWhitespace(): void {
-        while (ParserX.WHITE_SPACE.indexOf(this.peekChar) !== -1) {
-            this.read();
-            if (this.peek() === -1) {
+        const json = this.json;
+        const len = json.length;
+        let pos = this.position;
+        while (pos < len) {
+            const c = json.charCodeAt(pos);
+            if (
+                c === CHAR_SPACE || c === CHAR_TAB || c === CHAR_LF || c === CHAR_CR ||
+                c === 11 /* \v */ || c === 12 /* \f */ || c === CHAR_BOM
+            ) {
+                pos++;
+            } else {
                 break;
             }
         }
+        this.position = pos;
     }
     peek(): number {
         if (this.position >= this.json.length) {
@@ -228,52 +295,54 @@ class ParserX {
         return code === -1 ? "\0" : String.fromCharCode(code);
     }
     get nextWord(): string {
-        let result = "";
-        while (ParserX.WORD_BREAK.indexOf(this.peekChar) === -1) {
-            result += this.nextChar;
-            if (this.peek() === -1) {
+        const json = this.json;
+        const len = json.length;
+        const start = this.position;
+        let pos = start;
+        while (pos < len) {
+            const c = json.charCodeAt(pos);
+            if (
+                c === CHAR_SPACE || c === CHAR_TAB || c === CHAR_LF || c === CHAR_CR ||
+                c === CHAR_CURLY_OPEN || c === CHAR_CURLY_CLOSE ||
+                c === CHAR_SQUARE_OPEN || c === CHAR_SQUARE_CLOSE ||
+                c === CHAR_COMMA || c === CHAR_COLON || c === CHAR_QUOTE
+            ) {
                 break;
             }
+            pos++;
         }
-        return result;
+        this.position = pos;
+        return json.slice(start, pos);
     }
     get nextToken(): number {
         this.eatWhitespace();
         if (this.peek() === -1) {
             return ParserX.TOKEN.NONE;
         }
-        const char = this.peekChar;
-        switch (char) {
-            case '"':
+        const code = this.peek();
+        switch (code) {
+            case CHAR_QUOTE:
                 return ParserX.TOKEN.STRING;
-            case ",":
+            case CHAR_COMMA:
                 this.read();
                 return ParserX.TOKEN.COMMA;
-            case "-":
-            case "0":
-            case "1":
-            case "2":
-            case "3":
-            case "4":
-            case "5":
-            case "6":
-            case "7":
-            case "8":
-            case "9":
+            case 45: // -
+            case 48: case 49: case 50: case 51: case 52:
+            case 53: case 54: case 55: case 56: case 57:
                 return ParserX.TOKEN.NUMBER;
-            case ":":
+            case CHAR_COLON:
                 return ParserX.TOKEN.COLON;
-            case "[":
+            case CHAR_SQUARE_OPEN:
                 return ParserX.TOKEN.SQUARED_OPEN;
-            case "]":
+            case CHAR_SQUARE_CLOSE:
                 this.read();
                 return ParserX.TOKEN.SQUARED_CLOSE;
-            case "{":
+            case CHAR_CURLY_OPEN:
                 return ParserX.TOKEN.CURLY_OPEN;
-            case "}":
+            case CHAR_CURLY_CLOSE:
                 this.read();
                 return ParserX.TOKEN.CURLY_CLOSE;
-            default:
+            default: {
                 const word = this.nextWord;
                 switch (word) {
                     case "false":
@@ -285,6 +354,7 @@ class ParserX {
                     default:
                         return ParserX.TOKEN.NONE;
                 }
+            }
         }
     }
 }
@@ -295,6 +365,7 @@ class Serializer {
     private space: string | number | null;
     private indent: number = 0;
     private indentStr: string = "";
+    private indentPrefix: string = "";
     constructor(replacer?: (key: string, value: any) => any, space?: string | number) {
         this.replacer = replacer || null;
         this.space = space || null;
@@ -306,8 +377,16 @@ class Serializer {
     }
     serialize(obj: any): string {
         this.result = "";
+        this.indent = 0;
+        this.indentPrefix = "";
         this.serializeValue(obj, "");
         return this.result;
+    }
+    private pushIndent(delta: number): void {
+        this.indent += delta;
+        if (this.indentStr) {
+            this.indentPrefix = this.indentStr.repeat(this.indent);
+        }
     }
     private serializeValue(value: any, key: string = ""): void {
         if (typeof this.replacer === "function") {
@@ -318,7 +397,7 @@ class Serializer {
         } else if (typeof value === "string") {
             this.serializeString(value);
         } else if (typeof value === "boolean") {
-            this.result += value.toString();
+            this.result += value ? "true" : "false";
         } else if (Array.isArray(value)) {
             this.serializeArray(value);
         } else if (typeof value === "object") {
@@ -332,31 +411,31 @@ class Serializer {
         this.result += "{";
         if (this.indentStr) {
             this.result += "\n";
-            this.indent++;
+            this.pushIndent(1);
         }
-        for (const key in obj) {
-            if (Object.prototype.hasOwnProperty.call(obj, key)) {
-                if (Array.isArray(this.replacer) && !this.replacer.includes(key)) {
-                    continue;
-                }
-                if (!first) {
-                    this.result += ",";
-                    if (this.indentStr) this.result += "\n";
-                }
-                if (this.indentStr) {
-                    this.result += this.indentStr.repeat(this.indent);
-                }
-                this.serializeString(key.toString());
-                this.result += ":";
-                if (this.indentStr) this.result += " ";
-                this.serializeValue(obj[key], key);
-                first = false;
+        const keys = Object.keys(obj);
+        for (let k = 0; k < keys.length; k++) {
+            const key = keys[k];
+            if (Array.isArray(this.replacer) && !this.replacer.includes(key)) {
+                continue;
             }
+            if (!first) {
+                this.result += ",";
+                if (this.indentStr) this.result += "\n";
+            }
+            if (this.indentStr) {
+                this.result += this.indentPrefix;
+            }
+            this.serializeString(key.toString());
+            this.result += ":";
+            if (this.indentStr) this.result += " ";
+            this.serializeValue(obj[key], key);
+            first = false;
         }
         if (this.indentStr) {
             this.result += "\n";
-            this.indent--;
-            this.result += this.indentStr.repeat(this.indent);
+            this.pushIndent(-1);
+            this.result += this.indentPrefix;
         }
         this.result += "}";
     }
@@ -364,7 +443,7 @@ class Serializer {
         this.result += "[";
         if (this.indentStr && array.length > 0) {
             this.result += "\n";
-            this.indent++;
+            this.pushIndent(1);
         }
         let first = true;
         for (let i = 0; i < array.length; i++) {
@@ -373,53 +452,70 @@ class Serializer {
                 if (this.indentStr) this.result += "\n";
             }
             if (this.indentStr) {
-                this.result += this.indentStr.repeat(this.indent);
+                this.result += this.indentPrefix;
             }
             this.serializeValue(array[i], i.toString());
             first = false;
         }
         if (this.indentStr && array.length > 0) {
             this.result += "\n";
-            this.indent--;
-            this.result += this.indentStr.repeat(this.indent);
+            this.pushIndent(-1);
+            this.result += this.indentPrefix;
         }
         this.result += "]";
     }
     private serializeString(str: string): void {
-        this.result += '"';
-        for (const char of str) {
-            switch (char) {
-                case "\b":
-                    this.result += "\\b";
-                    break;
-                case "\t":
-                    this.result += "\\t";
-                    break;
-                case "\n":
-                    this.result += "\\n";
-                    break;
-                case "\f":
-                    this.result += "\\f";
-                    break;
-                case "\r":
-                    this.result += "\\r";
-                    break;
-                case '"':
-                    this.result += '\\"';
-                    break;
-                case "\\":
-                    this.result += "\\\\";
-                    break;
-                default:
-                    const code = char.charCodeAt(0);
-                    if (code >= 32 && code <= 126) {
-                        this.result += char;
-                    } else {
-                        this.result += "\\u" + code.toString(16).padStart(4, "0");
-                    }
-                    break;
+        const len = str.length;
+
+        // Fast path: nothing to escape.
+        let needsEscape = false;
+        for (let i = 0; i < len; i++) {
+            const code = str.charCodeAt(i);
+            if (
+                code === CHAR_QUOTE || code === CHAR_BACKSLASH ||
+                code < CHAR_SPACE || code > 126
+            ) {
+                needsEscape = true;
+                break;
             }
         }
+        if (!needsEscape) {
+            this.result += '"';
+            this.result += str;
+            this.result += '"';
+            return;
+        }
+
+        // Slow path: copy safe runs in bulk, emit escapes one by one.
+        this.result += '"';
+        let chunkStart = 0;
+        for (let i = 0; i < len; i++) {
+            const code = str.charCodeAt(i);
+            let escaped: string | undefined;
+            if (code < CHAR_SPACE) {
+                switch (code) {
+                    case CHAR_BACKSPACE: escaped = "\\b"; break;
+                    case CHAR_TAB: escaped = "\\t"; break;
+                    case CHAR_LF: escaped = "\\n"; break;
+                    case CHAR_FF: escaped = "\\f"; break;
+                    case CHAR_CR: escaped = "\\r"; break;
+                    default: escaped = "\\u" + code.toString(16).padStart(4, "0"); break;
+                }
+            } else if (code === CHAR_QUOTE) {
+                escaped = '\\"';
+            } else if (code === CHAR_BACKSLASH) {
+                escaped = "\\\\";
+            } else if (code > 126) {
+                escaped = "\\u" + code.toString(16).padStart(4, "0");
+            }
+
+            if (escaped !== undefined) {
+                if (chunkStart < i) this.result += str.slice(chunkStart, i);
+                this.result += escaped;
+                chunkStart = i + 1;
+            }
+        }
+        if (chunkStart < len) this.result += str.slice(chunkStart, len);
         this.result += '"';
     }
     private serializeOther(value: any): void {

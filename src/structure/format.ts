@@ -4,8 +4,10 @@
     * @param {boolean} isRoot - Is JSON the Root?
     * @param {string} indentChar - 单次缩进使用的字符，默认制表符 '\t'
     * @param {number} indentStep - 每层增加的缩进数（默认 1）
-    * @returns ADOFAI File Content or Object
+    * @returns 7bgson
 */
+
+
 function exportAsADOFAI(
   obj: any,
   indentLevel: number = 0,

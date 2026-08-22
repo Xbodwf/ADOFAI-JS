@@ -1,5 +1,8 @@
 const BOM = new Uint8Array([0xef, 0xbb, 0xbf]);
 
+/** 共享的解码器实例，避免在热路径中反复创建 */
+const SHARED_DECODER = new TextDecoder('utf-8');
+
 export interface LargeFileParseResult {
   settings?: any;
   angleData?: number[];
@@ -38,8 +41,7 @@ function findAllPropertiesAtRoot(buffer: Uint8Array): Map<string, number> {
       if (inString) {
         inString = false;
         if (depth === 1 && propertyNameStart !== -1) {
-          const decoder = new TextDecoder('utf-8');
-          propertyName = decoder.decode(buffer.slice(propertyNameStart, i));
+          propertyName = SHARED_DECODER.decode(buffer.subarray(propertyNameStart, i));
         }
       } else {
         inString = true;
@@ -141,8 +143,7 @@ function findValueEnd(buffer: Uint8Array, startPos: number): number {
 }
 
 function extractValueAsString(buffer: Uint8Array, startPos: number, endPos: number): string {
-  const decoder = new TextDecoder('utf-8');
-  return decoder.decode(buffer.slice(startPos, endPos));
+  return SHARED_DECODER.decode(buffer.subarray(startPos, endPos));
 }
 
 function parseNumberArrayIncremental(
@@ -154,12 +155,21 @@ function parseNumberArrayIncremental(
 
   const values: number[] = [];
   let i = startPos + 1;
-  let currentValue = '';
   let depth = 1;
   let inString = false;
   let escapeNext = false;
   let lastWasComma = false;
+  /** 当前数字的起始下标（-1 表示无待处理数字），替代逐字符字符串拼接 */
+  let numStart = -1;
   const totalLength = buffer.length;
+
+  const flushNumber = (end: number) => {
+    if (numStart !== -1 && !lastWasComma) {
+      const num = Number(SHARED_DECODER.decode(buffer.subarray(numStart, end)));
+      if (!isNaN(num)) values.push(num);
+    }
+    numStart = -1;
+  };
 
   while (i < buffer.length) {
     const byte = buffer[i];
@@ -190,24 +200,17 @@ function parseNumberArrayIncremental(
       } else if (byte === 93) {
         depth--;
         if (depth === 0) {
-          if (currentValue.trim() && !lastWasComma) {
-            const num = Number(currentValue.trim());
-            if (!isNaN(num)) values.push(num);
-          }
+          flushNumber(i);
           return { values, endPos: i + 1 };
         }
         i++;
         lastWasComma = false;
       } else if (byte === 44) {
-        if (currentValue.trim() && !lastWasComma) {
-          const num = Number(currentValue.trim());
-          if (!isNaN(num)) values.push(num);
-        }
-        currentValue = '';
+        flushNumber(i);
         lastWasComma = true;
         i++;
       } else if ((byte >= 48 && byte <= 57) || byte === 45 || byte === 46) {
-        currentValue += String.fromCharCode(byte);
+        if (numStart === -1) numStart = i;
         lastWasComma = false;
         i++;
       } else if (byte === 32 || byte === 9 || byte === 10 || byte === 13) {

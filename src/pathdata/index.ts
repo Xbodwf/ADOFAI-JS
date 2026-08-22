@@ -23,25 +23,46 @@ const offsetMap: Record<string, number> = {
   "y": 300,
 };
 
+/**
+ * charCode → 查找表（-1 表示无映射）。
+ * 用 Int16Array 按 charCode 索引，避免解析热路径上的字符串哈希查找。
+ */
+const ANGLE_LUT = new Int16Array(128).fill(-1);
+for (const key in pathDataTable) {
+  const code = key.charCodeAt(0);
+  if (code < 128) ANGLE_LUT[code] = pathDataTable[key];
+}
+
+const OFFSET_LUT = new Int16Array(128).fill(-1);
+for (const key in offsetMap) {
+  const code = key.charCodeAt(0);
+  if (code < 128) OFFSET_LUT[code] = offsetMap[key];
+}
+
 const parseToangleData = (pathdata: string): number[] => {
   const result: number[] = new Array(pathdata.length);
   let prev = 0;
 
   for (let i = 0; i < pathdata.length; i++) {
-    const c = pathdata[i];
+    const c = pathdata.charCodeAt(i);
 
-    if (c in pathDataTable) {
-      // Standard character: absolute angle
-      result[i] = pathDataTable[c];
-      prev = pathDataTable[c];
-    } else if (c in offsetMap) {
-      // Special character: relative offset from previous angle
-      result[i] = prev + offsetMap[c];
-      prev = result[i];
-    } else {
-      // Unknown character: keep current angle
-      result[i] = prev;
+    if (c < 128) {
+      const angle = ANGLE_LUT[c];
+      if (angle !== -1) {
+        result[i] = angle;
+        prev = angle;
+        continue;
+      }
+      const offset = OFFSET_LUT[c];
+      if (offset !== -1) {
+        result[i] = prev + offset;
+        prev = result[i];
+        continue;
+      }
     }
+
+    // Unknown character: keep current angle
+    result[i] = prev;
   }
 
   return result;

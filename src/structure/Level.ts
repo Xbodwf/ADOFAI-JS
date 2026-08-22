@@ -28,7 +28,7 @@ function uuid(): string {
 export class Level {
     private _events: Map<string, EventCallback[]>;
     private guidCallbacks: Map<string, GuidCallback>;
-    private _options: string | LevelOptions;
+    private _options: string | LevelOptions | Uint8Array | ArrayBuffer;
     private _provider?: ParseProvider;
     public angleData!: number[];
     public actions!: AdofaiEvent[];
@@ -42,7 +42,7 @@ export class Level {
     /** 轻量级预计算数据（用于大物量渲染） */
     private _lightweightData: LightweightPrecomputedData | null = null;
 
-    constructor(opt: string | LevelOptions, provider?: ParseProvider) {
+    constructor(opt: string | LevelOptions | Uint8Array | ArrayBuffer, provider?: ParseProvider) {
         this._events = new Map();
         this.guidCallbacks = new Map();
         this._options = opt;
@@ -196,7 +196,7 @@ export class Level {
 
             const isArrayBuffer = opt instanceof ArrayBuffer;
             const isUint8Array = opt instanceof Uint8Array;
-            const isBuffer = typeof Buffer !== 'undefined' && Buffer.isBuffer(opt);
+            const isBuffer = typeof (globalThis as any).Buffer !== 'undefined' && (globalThis as any).Buffer.isBuffer(opt);
 
             if (typeof opt === 'string' || isArrayBuffer || isUint8Array || isBuffer) {
                 try {
@@ -251,11 +251,30 @@ export class Level {
                 this.__decorations = [];
             }
 
-            // Fallback: 早期谱面可能把装饰事件放在 actions 里，将其归入 decorations
-            const decosInActions = this.actions.filter(a => isDecorationEvent(a));
-            if (decosInActions.length > 0) {
-                this.__decorations = [...this.__decorations, ...decosInActions];
-                this.actions = this.actions.filter(a => !isDecorationEvent(a));
+            // Fallback: 早期谱面可能把装饰事件放在 actions 里，将其归入 decorations（单遍分离）
+            if (this.actions.length > 0) {
+                let hasDecoration = false;
+                for (let i = 0; i < this.actions.length; i++) {
+                    if (isDecorationEvent(this.actions[i])) {
+                        hasDecoration = true;
+                        break;
+                    }
+                }
+                if (hasDecoration) {
+                    const keptActions = new Array<AdofaiEvent>(this.actions.length);
+                    const movedDecorations: AdofaiEvent[] = [];
+                    let keptCount = 0;
+                    for (const action of this.actions) {
+                        if (isDecorationEvent(action)) {
+                            movedDecorations.push(action);
+                        } else {
+                            keptActions[keptCount++] = action;
+                        }
+                    }
+                    keptActions.length = keptCount;
+                    this.__decorations = this.__decorations.concat(movedDecorations);
+                    this.actions = keptActions;
+                }
             }
 
             this.tiles = [];
@@ -295,9 +314,12 @@ export class Level {
     }
 
     trigger(eventName: string, data: any): void {
-        if (!this._events.has(eventName)) return;
-        const callbacks = this._events.get(eventName)!;
-        callbacks.forEach(({ callback }) => callback(data));
+        const callbacks = this._events.get(eventName);
+        if (callbacks === undefined) return;
+        const length = callbacks.length;
+        for (let i = 0; i < length; i++) {
+            callbacks[i].callback(data);
+        }
     }
 
     off(guid: string): void {
