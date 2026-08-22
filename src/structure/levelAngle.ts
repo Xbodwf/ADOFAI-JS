@@ -1,5 +1,21 @@
 import { AdofaiEvent, ActionData, Tile, ParseProgressEvent } from './interfaces';
 
+/**
+ * 装饰类事件的 eventType 列表。
+ * 这些事件在标准格式中应位于 decorations 数组，
+ * 但早期版本的谱面可能将它们放入 actions 数组，因此需要 fallback 处理。
+ */
+export const DECORATION_EVENT_TYPES: readonly string[] = [
+    'AddDecoration',
+    'AddText',
+    'AddObject',
+    'AddParticle'
+];
+
+export function isDecorationEvent(event: { eventType?: string } | null | undefined): boolean {
+    return event != null && DECORATION_EVENT_TYPES.indexOf(event.eventType as string) !== -1;
+}
+
 export function normalizeAngle(v: number): number {
   return ((v % 360) + 360) % 360;
 }
@@ -132,8 +148,18 @@ export async function createTiles(
   const batchSize = Math.max(100, Math.floor(xLength / 100));
 
   const actionsByFloor = new Map<number, AdofaiEvent[]>();
+  const decorationsByFloor = new Map<number, AdofaiEvent[]>();
+
   if (Array.isArray(opt.actions)) {
     for (const action of opt.actions) {
+      // Fallback: 早期谱面可能把装饰事件放在 actions 里，将其归入 decorations
+      if (isDecorationEvent(action)) {
+        if (!decorationsByFloor.has(action.floor)) {
+          decorationsByFloor.set(action.floor, []);
+        }
+        decorationsByFloor.get(action.floor)!.push(action);
+        continue;
+      }
       if (!actionsByFloor.has(action.floor)) {
         actionsByFloor.set(action.floor, []);
       }
@@ -141,7 +167,6 @@ export async function createTiles(
     }
   }
 
-  const decorationsByFloor = new Map<number, AdofaiEvent[]>();
   if (Array.isArray(opt.decorations)) {
     for (const deco of opt.decorations) {
       if (!decorationsByFloor.has(deco.floor)) {

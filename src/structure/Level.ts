@@ -5,7 +5,7 @@ import BaseParser from '../parser';
 import effectProcessor from '../filter/effectProcessor';
 import { EffectCleanerType } from '../filter/effectProcessor';
 import * as presets from '../filter/presets';
-import { createTiles, changeAngles, filterActionsByEventType as filterActions, getActionsByIndex as getActions, calculateTilePositions, precomputePositions, resolveAngleOffset, flattenAngleDatas, flattenActionsWithFloor, flattenDecorationsWithFloor } from './levelAngle';
+import { createTiles, changeAngles, filterActionsByEventType as filterActions, getActionsByIndex as getActions, calculateTilePositions, precomputePositions, resolveAngleOffset, flattenAngleDatas, flattenActionsWithFloor, flattenDecorationsWithFloor, isDecorationEvent } from './levelAngle';
 
 function uuid(): string {
     const r = new Uint8Array(16);
@@ -249,6 +249,13 @@ export class Level {
                 this.__decorations = options['decorations']!;
             } else {
                 this.__decorations = [];
+            }
+
+            // Fallback: 早期谱面可能把装饰事件放在 actions 里，将其归入 decorations
+            const decosInActions = this.actions.filter(a => isDecorationEvent(a));
+            if (decosInActions.length > 0) {
+                this.__decorations = [...this.__decorations, ...decosInActions];
+                this.actions = this.actions.filter(a => !isDecorationEvent(a));
             }
 
             this.tiles = [];
